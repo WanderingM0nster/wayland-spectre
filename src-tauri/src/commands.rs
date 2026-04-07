@@ -111,9 +111,14 @@ pub async fn generate_bug_report() -> Result<String, String> {
     // 1. Run fresh diagnostics and save JSON
     let report = run_diagnostics().await?;
     let json = serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?;
-    std::fs::write(format!("{dir}/diagnostics.json"), json).map_err(|e| e.to_string())?;
+    std::fs::write(format!("{dir}/diagnostics.json"), &json).map_err(|e| e.to_string())?;
 
-    // 2. Capture relevant journal units
+    // 2. Human-readable SUMMARY.txt — failures and warnings only, for easy
+    //    copy-paste into bug tracker comments (NVIDIA forum, KDE Bugzilla)
+    let summary_text = build_summary_text(&report);
+    std::fs::write(format!("{dir}/SUMMARY.txt"), summary_text).map_err(|e| e.to_string())?;
+
+    // 3. Capture relevant journal units
     for unit in &[
         "xdg-desktop-portal",
         "xdg-desktop-portal-kde",
@@ -124,19 +129,60 @@ pub async fn generate_bug_report() -> Result<String, String> {
             .args(["--user", "-u", unit, "-n", "200", "--no-pager"])
             .output();
         if let Ok(o) = out {
-            let _ = std::fs::write(
-                format!("{dir}/journal-{unit}.log"),
-                o.stdout,
-            );
+            let _ = std::fs::write(format!("{dir}/journal-{unit}.log"), o.stdout);
         }
     }
 
-    // 3. wayland-info if available
+    // 4. KWin supportInformation — the primary source for L7 checks.
+    //    busctl prints the response as:  s "actual content here"
+    //    We strip the leading `s "` and trailing `"` for readability.
+    if let Ok(o) = Command::new("busctl")
+        .args([
+            "--user", "call",
+            "org.kde.KWin", "/KWin", "org.kde.KWin",
+            "supportInformation",
+        ])
+        .output()
+    {
+        let raw = String::from_utf8_lossy(&o.stdout);
+        // busctl wraps the string: `s "…"` — unwrap it if present
+        let content = if raw.trim_start().starts_with("s \"") {
+            raw.trim_start()
+                .trim_start_matches("s \"")
+                .trim_end()
+                .trim_end_matches('"')
+                .replace("\\n", "\n")
+                .replace("\\t", "\t")
+        } else {
+            raw.into_owned()
+        };
+        let _ = std::fs::write(format!("{dir}/kwin-support-info.txt"), content);
+    }
+
+    // 5. NVIDIA driver info — useful for NVIDIA forum reports
+    if let Ok(content) = std::fs::read_to_string("/proc/driver/nvidia/version") {
+        let _ = std::fs::write(format!("{dir}/nvidia-driver-version.txt"), content);
+    }
+    if let Ok(o) = Command::new("nvidia-smi").args(["--query-gpu=name,driver_version,vbios_version,pci.bus_id", "--format=csv"]).output() {
+        let _ = std::fs::write(format!("{dir}/nvidia-smi.txt"), o.stdout);
+    }
+
+    // 6. wayland-info if available
     if let Ok(o) = Command::new("wayland-info").output() {
         let _ = std::fs::write(format!("{dir}/wayland-info.txt"), o.stdout);
     }
 
-    // 4. Tar it up
+    // 7. wl-info alternative (some distros ship this instead)
+    if let Ok(o) = Command::new("wl-info").output() {
+        let _ = std::fs::write(format!("{dir}/wl-info.txt"), o.stdout);
+    }
+
+    // 8. os-release for image / kernel context
+    if let Ok(content) = std::fs::read_to_string("/etc/os-release") {
+        let _ = std::fs::write(format!("{dir}/os-release.txt"), content);
+    }
+
+    // 9. Tar it up
     let tarball = format!("/tmp/wayland-spectre-bugreport-{epoch}.tar.gz");
     let status = Command::new("tar")
         .args(["-czf", &tarball, "-C", "/tmp", &format!("wayland-spectre-bugreport-{epoch}")])
@@ -144,12 +190,69 @@ pub async fn generate_bug_report() -> Result<String, String> {
         .map_err(|e| e.to_string())?;
 
     if status.success() {
-        // Clean up temp dir
         let _ = std::fs::remove_dir_all(&dir);
         Ok(tarball)
     } else {
         Err(format!("tar failed, raw dir at: {dir}"))
     }
+}
+
+/// Build a human-readable SUMMARY.txt for copy-pasting into bug reports.
+fn build_summary_text(report: &crate::domain::types::DiagnosticReport) -> String {
+    let mut out = String::new();
+
+    out.push_str("wayland-spectre diagnostic report\n");
+    out.push_str(&"=".repeat(50));
+    out.push('\n');
+    out.push_str(&format!("Generated : {}\n", report.system.generated_at));
+    out.push_str(&format!("Hostname  : {}\n", report.system.hostname));
+    out.push_str(&format!("Kernel    : {}\n", report.system.kernel));
+    if let Some(ref d) = report.system.nvidia_driver {
+        out.push_str(&format!("NVIDIA    : {d}\n"));
+    }
+    if let Some(ref b) = report.system.bazzite_image {
+        out.push_str(&format!("Bazzite   : {b}\n"));
+    }
+    out.push('\n');
+
+    let fails: Vec<_> = report.results.iter().filter(|r| r.status == CheckStatus::Fail).collect();
+    let warns: Vec<_> = report.results.iter().filter(|r| r.status == CheckStatus::Warn).collect();
+
+    out.push_str(&format!(
+        "Summary: {} pass  {} warn  {} fail\n\n",
+        report.summary.pass, report.summary.warn, report.summary.fail
+    ));
+
+    if !fails.is_empty() {
+        out.push_str("FAILURES\n");
+        out.push_str(&"-".repeat(40));
+        out.push('\n');
+        for r in &fails {
+            out.push_str(&format!("[{:?}] {}: {}\n", r.layer, r.check, r.detail));
+            if let Some(ref fix) = r.fix {
+                out.push_str(&format!("  fix: {fix}\n"));
+            }
+            out.push('\n');
+        }
+    }
+
+    if !warns.is_empty() {
+        out.push_str("WARNINGS\n");
+        out.push_str(&"-".repeat(40));
+        out.push('\n');
+        for r in &warns {
+            out.push_str(&format!("[{:?}] {}: {}\n", r.layer, r.check, r.detail));
+            if let Some(ref fix) = r.fix {
+                out.push_str(&format!("  fix: {fix}\n"));
+            }
+            out.push('\n');
+        }
+    }
+
+    out.push_str(&"-".repeat(50));
+    out.push('\n');
+    out.push_str("Generated by wayland-spectre — https://forgejo.wanderingmonster.dev/WanderingMonster/wayland-spectre\n");
+    out
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -221,3 +324,4 @@ fn read_bazzite_image() -> Option<String> {
                 .map(|s| s.to_string())
         })
 }
+

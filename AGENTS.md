@@ -187,6 +187,39 @@ These are explicitly deferred — do not implement unless asked:
 | xdg-desktop-portal #1953 | portal 1.20.3: O_RDONLY\|O_NOFOLLOW on /proc/<pid>/root → ELOOP | `dbus.rs::check_portal_version()` |
 | KDE Bug 518650 | KWin best-effort portal registration timing | `wayland.rs` zkde_screencast check |
 | NVIDIA forum 331077 | KWin pageflip timeout on tiled display, Xid 51/69 | `nvidia.rs::check_explicit_sync()` |
+| KDE bug 493277 | CRTC format mismatch AB30 vs AB4H on tiled panels → screencast plugin init failure | `kwin.rs::check_tiled_display()` + `wayland.rs::bug_d_screencast_globals` |
+| KDE bug 503870 | Tile gap / wl_output split on tiled display | `kwin.rs::check_tiled_display()` |
+| **Bug D** (synthesised) | KWin NOT advertising `zkde_screencast_unstable_v1` or `ext_image_capture_source_v1` — confirmed root cause on arctic (tiled Dell UP3214Q + NVIDIA open 595.x). Both globals absent → `bug_d_screencast_globals` L3 FAIL | `wayland.rs::build_checks()` |
+
+---
+
+## Distribution packaging (Session 3)
+
+AppImage and .deb are the supported bundle targets (`pnpm tauri build`).
+
+### Icons
+The repo ships a single `src-tauri/icons/icon.png`. Before a public release
+run `pnpm tauri icon src-tauri/icons/icon.png` to generate the full size set
+(32×32, 128×128, etc.) that Tauri embeds into the AppImage and .deb.
+
+### Building on Bazzite / Fedora
+```bash
+# System deps (already on Bazzite 43.x)
+sudo dnf install wayland-utils dbus-devel webkit2gtk4.1-devel
+
+# Tauri downloads linuxdeploy automatically — requires internet first build
+pnpm tauri build
+
+# AppImage location after build:
+# src-tauri/target/release/bundle/appimage/wayland-spectre_*.AppImage
+```
+
+### Test the AppImage before committing
+```bash
+./wayland-spectre_*.AppImage -- check          # must exit 0 or 1 (no crash)
+./wayland-spectre_*.AppImage -- check --json-only | jq .summary
+./wayland-spectre_*.AppImage -- report         # must produce a .tar.gz
+```
 
 ---
 
@@ -201,9 +234,34 @@ These are explicitly deferred — do not implement unless asked:
 
 ---
 
+## Bug report bundle contents (Session 3)
+
+`cargo run -- report` (or `AppImage -- report`) produces a `.tar.gz` containing:
+
+| File | Source |
+|------|--------|
+| `diagnostics.json` | Full structured report (all checks) |
+| `SUMMARY.txt` | Human-readable FAILs + WARNs for copy-paste into bug trackers |
+| `journal-plasma-kwin_wayland.log` | Last 200 lines |
+| `journal-xdg-desktop-portal.log` | Last 200 lines |
+| `journal-xdg-desktop-portal-kde.log` | Last 200 lines |
+| `journal-pipewire.log` | Last 200 lines |
+| `kwin-support-info.txt` | KWin `supportInformation` D-Bus call (raw) |
+| `nvidia-driver-version.txt` | `/proc/driver/nvidia/version` |
+| `nvidia-smi.txt` | `nvidia-smi` GPU/driver query |
+| `wayland-info.txt` | `wayland-info` globals dump (if installed) |
+| `os-release.txt` | `/etc/os-release` (Bazzite image tag) |
+
+Attach the `.tar.gz` to NVIDIA forum thread 331077 and Bazzite community thread 11901.
+
+---
+
 ## Output locations
 
 - JSON diagnostic report: `/tmp/screenshare-diag-<epoch>.json` (same path as bash script)
 - Bug report bundle: `/tmp/wayland-spectre-bugreport-<epoch>.tar.gz`
 - Creations folder: `<WORKDIR>/`
 - Forgejo: `https://forgejo.wanderingmonster.dev/WanderingMonster`
+- NVIDIA forum thread: `https://forums.developer.nvidia.com/t/331077`
+- Bazzite community thread: `https://universal-blue.discourse.group/t/11901`
+

@@ -111,19 +111,61 @@ pnpm tauri dev
 
 ## Build / install
 
-**Requirements:** Rust stable (≥1.82), Node 22, pnpm 9, KDE Plasma on Wayland.
+### AppImage (recommended — runs on any x86-64 Linux)
+
+```bash
+# Build
+git clone https://forgejo.wanderingmonster.dev/WanderingMonster/wayland-spectre
+cd wayland-spectre
+pnpm install
+pnpm tauri build                # produces src-tauri/target/release/bundle/appimage/
+
+# Install (move to a directory on your PATH)
+cp src-tauri/target/release/bundle/appimage/wayland-spectre_*.AppImage \
+   ~/.local/bin/wayland-spectre.AppImage
+chmod +x ~/.local/bin/wayland-spectre.AppImage
+
+# Run
+wayland-spectre.AppImage               # GUI
+wayland-spectre.AppImage -- check      # CLI (colour output)
+wayland-spectre.AppImage -- report     # Bug report bundle → /tmp/*.tar.gz
+```
+
+> **Note:** Tauri downloads `linuxdeploy` automatically during `pnpm tauri build`.
+> Requires an internet connection on the build machine the first time.
+
+### .deb (Ubuntu / Debian / Bazzite)
+
+```bash
+pnpm tauri build
+sudo dpkg -i src-tauri/target/release/bundle/deb/wayland-spectre_*.deb
+```
+
+### Cargo only (CLI, no GUI)
+
+**Requirements:** Rust stable ≥1.82 (no Node, no pnpm).
 
 ```bash
 git clone https://forgejo.wanderingmonster.dev/WanderingMonster/wayland-spectre
 cd wayland-spectre
-pnpm install
 cargo build --manifest-path src-tauri/Cargo.toml --release
+# Binary: src-tauri/target/release/wayland-spectre
 ```
 
-Bazzite system dependencies (already present on the target system):
+### Multi-size icons for distribution builds
+
+The repo ships a single `src-tauri/icons/icon.png`. Before a public release,
+regenerate the full icon set:
 
 ```bash
-sudo dnf install wayland-utils
+pnpm tauri icon src-tauri/icons/icon.png   # writes 32x32.png, 128x128.png, etc.
+```
+
+Bazzite system dependencies (already present on Bazzite 43.x):
+
+```bash
+# Fedora / Bazzite (if building from source on a fresh machine)
+sudo dnf install wayland-utils dbus-devel
 ```
 
 ---
@@ -138,9 +180,11 @@ The diagnostics are built around real open bugs. If wayland-spectre points you a
 | [KDE bug 493277](https://bugs.kde.org/show_bug.cgi?id=493277) | CRTC tiling format mismatch (AB30 vs AB4H) prevents KWin screencast plugin init |
 | [KDE bug 503870](https://bugs.kde.org/show_bug.cgi?id=503870) | Tile gap / wl_output split causes KWin protocol advertisement regression |
 | [xdg-desktop-portal #1953](https://github.com/flatpak/xdg-desktop-portal/issues/1953) | ScreenCast API v5 / ELOOP deadlock (Bug C) in portal 1.20.x |
+| Bug D (`bug_d_screencast_globals`) | KWin not advertising `zkde_screencast_unstable_v1` **or** `ext_image_capture_source_v1` — confirmed root cause on tiled 4K + NVIDIA open modules; synthesised at L3 with root-cause hypothesis and upstream links |
 
 ---
 
 ## Licence
 
 [GPL-3.0-or-later](LICENSE) — same licence as the parent `wayland-screenshare-diag` project.
+

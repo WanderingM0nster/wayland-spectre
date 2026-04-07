@@ -139,7 +139,25 @@ async fn run_report() -> i32 {
     println!("Generating bug report bundle…");
     match generate_bug_report().await {
         Ok(path) => {
-            println!("Bug report saved to: {path}");
+            println!("Bug report saved: {path}");
+            println!();
+            println!("Contents:");
+            // List the tarball entries for quick verification
+            if let Ok(o) = std::process::Command::new("tar")
+                .args(["--list", "--file", &path])
+                .output()
+            {
+                let entries = String::from_utf8_lossy(&o.stdout);
+                for line in entries.lines().filter(|l| !l.trim().is_empty()) {
+                    println!("  {line}");
+                }
+            }
+            println!();
+            println!("Next steps:");
+            println!("  • Attach {path} to NVIDIA forum thread:");
+            println!("    https://forums.developer.nvidia.com/t/331077");
+            println!("  • Update Bazzite community thread:");
+            println!("    https://universal-blue.discourse.group/t/11901");
             0
         }
         Err(e) => {
@@ -179,3 +197,4 @@ fn print_summary(results: &[crate::domain::types::DiagnosticResult], use_color: 
     }
     println!();
 }
+
