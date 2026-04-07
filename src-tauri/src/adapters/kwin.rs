@@ -1,16 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! KWin adapter — Session 3.
+//! KWin adapter — Session 4.
 //!
-//! All D-Bus calls are now native zbus (no subprocess / busctl).
-//! New checks derived from `supportInformation` parsing:
-//!   - kwin_version              (L7) — KWin build version
-//!   - kwin_render_backend       (L7) — EGL/GBM vs GLX (EGL required for screencasting)
-//!   - kwin_screencast_loaded    (L7) — screencast plugin presence in supportInformation;
-//!                                      absence directly explains L3 FAIL for
-//!                                      zkde_screencast_unstable_v1
-//!   - kwin_tiled_display        (L7) — ≥2 DP outputs → correlates with KDE bugs 493277/503870
+//! New in this session:
+//!   - `screencast_in_section(info, section_name)` — parse a named section of
+//!     supportInformation instead of doing a global substring search.
+//!   - `kwin_screencast_effect_active` (L7) — distinguishes between the plugin
+//!     appearing in "Loaded Plugins" (plugin was loaded) vs. appearing in
+//!     "Loaded Effects" (effect is actually running).
+//!     On our system: plugin is in Loaded Plugins but NOT in Loaded Effects —
+//!     CRTC format mismatch (AB30 vs AB4H) on the tiled Dell UP3214Q prevents
+//!     effect registration at compositor startup. This is the precise failure
+//!     point that explains why zkde_screencast_unstable_v1 is never advertised.
+//!   - `generate_bug_report` now captures the full KWin boot journal and a
+//!     targeted effect-startup extract (commands.rs change).
 //!
-//! kwinrc file-read (kwin_screencast_plugin_kwinrc) unchanged.
+//! kwinrc check and tiled-display check: unchanged from Session 3.
 //! Layer: L7
 
 use crate::domain::types::{Confidence, DiagnosticResult, Layer};
@@ -80,8 +84,63 @@ pub(crate) fn analyse_support_info(info: &str) -> Vec<DiagnosticResult> {
     out.extend(check_version(info));
     out.extend(check_render_backend(info));
     out.extend(check_screencast_plugin_info(info));
+    out.extend(check_screencast_effect_active(info));
     out.extend(check_tiled_display(info));
     out
+}
+
+// ── Section-aware parsing ──────────────────────────────────────────────────
+
+/// Search for `needle` (case-insensitive, hardcoded to "screencast") within
+/// the named section of KWin supportInformation.
+///
+/// KWin's `supportInformation` uses sections separated by blank lines:
+///
+/// ```text
+/// Loaded Plugins:
+/// kwin4_effect_blur
+/// kwin_screencast
+/// kwin4_effect_overview
+///
+/// Loaded Effects:
+/// blur
+/// overview
+/// ```
+///
+/// This function:
+/// 1. Locates the line `"{section_name}:"` (case-insensitive)
+/// 2. Reads subsequent lines until the first blank line (section separator)
+/// 3. Returns whether any of those lines contain "screencast"
+///
+/// Returns `false` if the named section header is not found in `info`.
+/// Exported for unit tests.
+pub(crate) fn screencast_in_section(info: &str, section_name: &str) -> bool {
+    let lower = info.to_lowercase();
+    let header = format!("{}:", section_name.to_lowercase());
+
+    let Some(section_start) = lower.find(&header) else {
+        return false;
+    };
+    let after = &lower[section_start + header.len()..];
+
+    // Read lines until the first blank line (KWin section separator).
+    // `past_first` guards against stopping immediately if the header is
+    // followed by a bare newline before the first content line.
+    let mut past_first = false;
+    for line in after.lines() {
+        let t = line.trim();
+        if t.is_empty() {
+            if past_first {
+                break; // end of section
+            }
+        } else {
+            past_first = true;
+            if t.contains("screencast") {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 // ── KWin version ──────────────────────────────────────────────────────────
@@ -178,12 +237,20 @@ fn check_render_backend(info: &str) -> Vec<DiagnosticResult> {
     )]
 }
 
-// ── Screencast plugin ──────────────────────────────────────────────────────
+// ── Screencast plugin — present in "Loaded Plugins" ───────────────────────
 
-/// Returns true if the screencast plugin appears in supportInformation text.
-/// Case-insensitive. Exported for unit tests.
+/// Returns true if the screencast plugin appears in the "Loaded Plugins"
+/// section of supportInformation, or (as a fallback for older/unusual KWin
+/// output that lacks section headers) anywhere in the text.
+/// Exported for unit tests.
 pub(crate) fn screencast_in_support_info(info: &str) -> bool {
-    info.to_lowercase().contains("screencast")
+    // Prefer section-aware search. If "Loaded Plugins:" is absent (old KWin
+    // format or truncated output), fall back to a global substring search.
+    if info.to_lowercase().contains("loaded plugins:") {
+        screencast_in_section(info, "Loaded Plugins")
+    } else {
+        info.to_lowercase().contains("screencast")
+    }
 }
 
 fn check_screencast_plugin_info(info: &str) -> Vec<DiagnosticResult> {
@@ -191,20 +258,98 @@ fn check_screencast_plugin_info(info: &str) -> Vec<DiagnosticResult> {
         vec![DiagnosticResult::pass(
             Layer::L7,
             "kwin_screencast_loaded",
-            "KWin supportInformation references screencast plugin — plugin initialised",
+            "KWin screencast plugin present in 'Loaded Plugins' — plugin initialised by KWin",
         )]
     } else {
         vec![DiagnosticResult::fail(
             Layer::L7,
             "kwin_screencast_loaded",
-            "KWin supportInformation has no screencast reference — plugin likely failed to \
-             initialise. This directly explains the L3 FAIL: zkde_screencast_unstable_v1 \
-             not advertised. Common causes: NVIDIA driver / tiled display init failure \
-             (KDE bugs 493277, 503870), or plugin crash at startup.",
+            "KWin screencast plugin absent from 'Loaded Plugins' — plugin failed to initialise \
+             or was not loaded at startup. This directly explains the L3 FAIL: \
+             zkde_screencast_unstable_v1 not advertised. Common causes: NVIDIA driver / \
+             tiled display init failure (KDE bugs 493277, 503870), or plugin crash at startup.",
             "systemctl --user restart plasma-kwin_wayland",
             Confidence::High,
         )]
     }
+}
+
+// ── Screencast effect — actually active in "Loaded Effects" ───────────────
+
+/// Returns true if the screencast effect appears in the "Loaded Effects"
+/// section of supportInformation.
+/// Exported for unit tests.
+pub(crate) fn screencast_effect_active(info: &str) -> bool {
+    screencast_in_section(info, "Loaded Effects")
+}
+
+/// NEW in Session 4.
+/// Distinguishes between:
+///   - Plugin present in "Loaded Plugins" (kwin_screencast_loaded)
+///   - Effect *active* in "Loaded Effects" (this check)
+///
+/// On arctic: plugin loads (present in Loaded Plugins) but the effect never
+/// activates (absent from Loaded Effects) because the CRTC format mismatch
+/// (AB30 vs AB4H) on the tiled Dell UP3214Q prevents KWin from registering
+/// the effect at compositor startup. This is why zkde_screencast_unstable_v1
+/// is never advertised on the Wayland bus.
+///
+/// To inspect startup errors:
+///   journalctl --user -u plasma-kwin_wayland -b | grep -iE 'screencast|effect|crtc|format'
+///
+/// On kwin_wayland --replace: there is no non-destructive effect-reload path
+/// in KDE Plasma 6. kwin_wayland --replace requires D-Bus takeover and is
+/// not supported when KWin is managed by plasma-kwin_wayland.service.
+/// The least-disruptive option remains:
+///   systemctl --user restart plasma-kwin_wayland
+fn check_screencast_effect_active(info: &str) -> Vec<DiagnosticResult> {
+    // Skip if "Loaded Effects:" section is absent — we can't distinguish
+    if !info.to_lowercase().contains("loaded effects:") {
+        return vec![DiagnosticResult::skip(
+            Layer::L7,
+            "kwin_screencast_effect_active",
+            "Cannot determine effect activation state: 'Loaded Effects' section absent \
+             from supportInformation (older KWin format or truncated output)",
+        )];
+    }
+
+    if screencast_effect_active(info) {
+        return vec![DiagnosticResult::pass(
+            Layer::L7,
+            "kwin_screencast_effect_active",
+            "KWin screencast effect confirmed active in 'Loaded Effects'",
+        )];
+    }
+
+    // Effect is not active. Distinguish plugin-loaded-but-stuck from
+    // plugin-not-loaded-at-all to give a more precise failure message.
+    let plugin_loaded = screencast_in_support_info(info);
+
+    let detail = if plugin_loaded {
+        "KWin screencast plugin is present in 'Loaded Plugins' but absent from \
+         'Loaded Effects' — effect failed to activate at compositor startup. \
+         This is the precise failure point explaining why zkde_screencast_unstable_v1 \
+         and ext_image_capture_source_v1 are never advertised on the Wayland bus. \
+         Root cause: CRTC format mismatch (AB30 vs AB4H) on tiled Dell UP3214Q \
+         prevents KWin from registering the screencast effect (NVIDIA forum 331077, \
+         KDE bugs 493277 + 503870). \
+         To inspect startup errors: \
+         journalctl --user -u plasma-kwin_wayland -b | grep -iE 'screencast|effect|crtc|format'. \
+         Note: kwin_wayland --replace is not available in KDE Plasma 6 when KWin \
+         is managed by plasma-kwin_wayland.service — only a service restart is viable."
+    } else {
+        "KWin screencast effect absent from 'Loaded Effects'. \
+         Plugin also absent from 'Loaded Plugins' — screencast plugin likely disabled, \
+         missing from the KWin plugin path, or crashed before reaching effect registration."
+    };
+
+    vec![DiagnosticResult::fail(
+        Layer::L7,
+        "kwin_screencast_effect_active",
+        detail,
+        "systemctl --user restart plasma-kwin_wayland",
+        Confidence::High,
+    )]
 }
 
 // ── Tiled display (KDE bugs 493277 + 503870) ──────────────────────────────
@@ -375,10 +520,47 @@ mod tests {
         assert_eq!(status(&run(info), "kwin_render_backend"), CheckStatus::Pass);
     }
 
-    // ── Screencast plugin ─────────────────────────────────────────────────
+    // ── Section parser ────────────────────────────────────────────────────
+
+    #[test]
+    fn section_parser_finds_screencast_in_plugins_section() {
+        let info = "Loaded Plugins:\nkwin4_effect_blur\nkwin_screencast\nkwin4_effect_overview\n\nLoaded Effects:\nblur\noverview\n";
+        assert!(screencast_in_section(info, "Loaded Plugins"), "should find in Loaded Plugins");
+        assert!(!screencast_in_section(info, "Loaded Effects"), "should not find in Loaded Effects");
+    }
+
+    #[test]
+    fn section_parser_finds_screencast_in_effects_section() {
+        let info = "Loaded Plugins:\nkwin4_effect_blur\nkwin_screencast\n\nLoaded Effects:\nblur\nscreencast\noverview\n";
+        assert!(screencast_in_section(info, "Loaded Plugins"));
+        assert!(screencast_in_section(info, "Loaded Effects"));
+    }
+
+    #[test]
+    fn section_parser_returns_false_for_missing_section() {
+        let info = "KWin version: 6.0.0\nsome text mentioning screencast here\n";
+        assert!(!screencast_in_section(info, "Loaded Plugins"),
+            "should not find section header");
+    }
+
+    #[test]
+    fn section_parser_handles_inline_section_content() {
+        // KWin may put content on the same line as the header
+        let info = "Loaded Effects: screencast blur overview\n";
+        assert!(screencast_in_section(info, "Loaded Effects"));
+    }
+
+    #[test]
+    fn section_parser_case_insensitive() {
+        let info = "LOADED PLUGINS:\nkwin_SCREENCAST\n\n";
+        assert!(screencast_in_section(info, "Loaded Plugins"));
+    }
+
+    // ── Screencast plugin (kwin_screencast_loaded) ─────────────────────
 
     #[test]
     fn screencast_present_passes() {
+        // No "Loaded Plugins:" section → falls back to global search
         let info = "Loaded Effects: screencast, blur, overview\n";
         assert!(screencast_in_support_info(info));
         assert_eq!(status(&run(info), "kwin_screencast_loaded"), CheckStatus::Pass);
@@ -403,6 +585,86 @@ mod tests {
         let r = run("Loaded Effects: blur\n");
         let d = &r.iter().find(|x| x.check == "kwin_screencast_loaded").unwrap().detail;
         assert!(d.contains("L3") || d.contains("zkde_screencast"));
+    }
+
+    #[test]
+    fn screencast_loaded_uses_section_when_available() {
+        // "Loaded Plugins:" section present, screencast NOT in it
+        // Even though "screencast" appears elsewhere in text
+        let info = "Loaded Plugins:\nkwin4_effect_blur\nkwin4_effect_overview\n\n\
+                    Some other section mentioning screencast configuration\n";
+        // Section-aware: looks in "Loaded Plugins:" section only → not found
+        assert!(!screencast_in_section(info, "Loaded Plugins"));
+        // screencast_in_support_info now uses section-aware path
+        assert!(!screencast_in_support_info(info),
+            "should not report plugin as loaded when absent from Loaded Plugins section");
+        assert_eq!(status(&run(info), "kwin_screencast_loaded"), CheckStatus::Fail);
+    }
+
+    // ── Screencast effect active (kwin_screencast_effect_active) — NEW ──
+
+    #[test]
+    fn effect_active_pass_when_in_loaded_effects() {
+        let info = "Loaded Plugins:\nkwin_screencast\n\nLoaded Effects:\nscreencast\nblur\n";
+        assert_eq!(status(&run(info), "kwin_screencast_effect_active"), CheckStatus::Pass);
+    }
+
+    #[test]
+    fn effect_active_fail_when_plugin_loaded_but_effect_missing() {
+        // This is the exact failure mode on arctic: plugin in Loaded Plugins,
+        // absent from Loaded Effects — CRTC mismatch prevents effect registration.
+        let info = "Loaded Plugins:\nkwin_screencast\nkwin4_effect_blur\n\n\
+                    Loaded Effects:\nblur\noverview\n";
+        assert_eq!(status(&run(info), "kwin_screencast_loaded"), CheckStatus::Pass);
+        assert_eq!(status(&run(info), "kwin_screencast_effect_active"), CheckStatus::Fail);
+    }
+
+    #[test]
+    fn effect_active_fail_mentions_crtc_and_restart_note() {
+        let info = "Loaded Plugins:\nkwin_screencast\n\nLoaded Effects:\nblur\n";
+        let r = run(info);
+        let d = &r.iter().find(|x| x.check == "kwin_screencast_effect_active").unwrap().detail;
+        assert!(d.contains("CRTC") || d.contains("crtc") || d.contains("493277"),
+            "detail should mention CRTC mismatch or KDE bug");
+        assert!(d.contains("restart") || d.contains("kwin_wayland"),
+            "detail should mention restart path");
+    }
+
+    #[test]
+    fn effect_active_skips_when_no_loaded_effects_section() {
+        // Older KWin format or truncated output — can't determine effect state
+        let info = "KWin version: 6.0.0\nsome text\n";
+        assert_eq!(status(&run(info), "kwin_screencast_effect_active"), CheckStatus::Skip);
+    }
+
+    #[test]
+    fn effect_active_different_detail_when_plugin_also_absent() {
+        // Neither loaded: different diagnosis than "plugin-loaded-but-stuck"
+        let info = "Loaded Plugins:\nkwin4_effect_blur\n\nLoaded Effects:\nblur\n";
+        let r = run(info);
+        let result = r.iter().find(|x| x.check == "kwin_screencast_effect_active").unwrap();
+        assert_eq!(result.status, CheckStatus::Fail);
+        // Detail should NOT mention CRTC mismatch (wrong diagnosis for this case)
+        assert!(!result.detail.contains("CRTC"),
+            "CRTC diagnosis should only appear when plugin is loaded but effect is not");
+    }
+
+    #[test]
+    fn effect_active_check_independent_of_screencast_loaded_check() {
+        // Both PASS
+        let info_both = "Loaded Plugins:\nkwin_screencast\n\nLoaded Effects:\nscreencast\n";
+        assert_eq!(status(&run(info_both), "kwin_screencast_loaded"), CheckStatus::Pass);
+        assert_eq!(status(&run(info_both), "kwin_screencast_effect_active"), CheckStatus::Pass);
+
+        // Plugin loaded, effect not active (the arctic failure mode)
+        let info_stuck = "Loaded Plugins:\nkwin_screencast\n\nLoaded Effects:\nblur\n";
+        assert_eq!(status(&run(info_stuck), "kwin_screencast_loaded"), CheckStatus::Pass);
+        assert_eq!(status(&run(info_stuck), "kwin_screencast_effect_active"), CheckStatus::Fail);
+
+        // Plugin not loaded → effect cannot be active
+        let info_none = "Loaded Plugins:\nkwin4_effect_blur\n\nLoaded Effects:\nblur\n";
+        assert_eq!(status(&run(info_none), "kwin_screencast_loaded"), CheckStatus::Fail);
+        assert_eq!(status(&run(info_none), "kwin_screencast_effect_active"), CheckStatus::Fail);
     }
 
     // ── Tiled display ─────────────────────────────────────────────────────

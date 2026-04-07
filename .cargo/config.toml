@@ -1,0 +1,2 @@
+[alias]
+t = "test --manifest-path src-tauri/Cargo.toml --lib"

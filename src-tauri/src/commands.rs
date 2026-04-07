@@ -118,18 +118,43 @@ pub async fn generate_bug_report() -> Result<String, String> {
     let summary_text = build_summary_text(&report);
     std::fs::write(format!("{dir}/SUMMARY.txt"), summary_text).map_err(|e| e.to_string())?;
 
-    // 3. Capture relevant journal units
-    for unit in &[
-        "xdg-desktop-portal",
-        "xdg-desktop-portal-kde",
-        "plasma-kwin_wayland",
-        "pipewire",
-    ] {
+    // 3. Capture relevant journal units.
+    // Non-KWin units: last 200 lines is sufficient.
+    for unit in &["xdg-desktop-portal", "xdg-desktop-portal-kde", "pipewire"] {
         let out = Command::new("journalctl")
             .args(["--user", "-u", unit, "-n", "200", "--no-pager"])
             .output();
         if let Ok(o) = out {
             let _ = std::fs::write(format!("{dir}/journal-{unit}.log"), o.stdout);
+        }
+    }
+
+    // 3b. KWin: capture the FULL boot journal — effect registration failures
+    // happen at compositor startup and are lost with a line-count cap.
+    if let Ok(o) = Command::new("journalctl")
+        .args(["--user", "-u", "plasma-kwin_wayland", "-b", "--no-pager"])
+        .output()
+    {
+        let _ = std::fs::write(format!("{dir}/journal-plasma-kwin_wayland.log"), o.stdout);
+    }
+
+    // 3c. Targeted KWin effect-startup extract — grep for the specific
+    // failure signatures: effect/plugin registration, CRTC format, modeset.
+    // journalctl --grep uses basic POSIX regex; alternation requires -E flag
+    // which is not available on all systemd versions, so we capture separately.
+    for grep_term in &["screencast", "effect", "CRTC", "modeset", "format mismatch"] {
+        if let Ok(o) = Command::new("journalctl")
+            .args(["--user", "-u", "plasma-kwin_wayland", "-b", "--no-pager",
+                   "--grep", grep_term])
+            .output()
+        {
+            if !o.stdout.is_empty() {
+                let slug = grep_term.replace(' ', "_");
+                let _ = std::fs::write(
+                    format!("{dir}/kwin-startup-{slug}.log"),
+                    o.stdout,
+                );
+            }
         }
     }
 

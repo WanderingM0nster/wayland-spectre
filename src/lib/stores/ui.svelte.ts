@@ -2,19 +2,35 @@
 // UI preferences store — zoom level with localStorage persistence.
 // SSR is disabled for this app (ssr=false in +layout.ts) so localStorage
 // and document access are safe at module level.
+//
+// Session 4 change: first-run default is now 150% (optimal for 32" 4K).
+// Users who already have a stored preference are unaffected.
 
 const ZOOM_KEY = 'wayland-spectre-zoom';
 
 // Discrete zoom steps — enough range for 1080p through 4K native (scale=1)
 const ZOOM_STEPS = [0.75, 0.85, 1.0, 1.15, 1.3, 1.5, 1.75, 2.0] as const;
-const DEFAULT_ZOOM = 1.0;
+
+// 150% is the recommended default for a 32" 4K display at normal viewing
+// distance (≈ matches a 24" 1080p at 100%). Applied on first run only;
+// existing stored preferences are respected.
+const DEFAULT_ZOOM = 1.5;
 const BASE_FONT_PX = 16;
 
 // ── State ──────────────────────────────────────────────────────────────────
 
-const stored = typeof localStorage !== 'undefined'
-	? parseFloat(localStorage.getItem(ZOOM_KEY) ?? String(DEFAULT_ZOOM))
+const hasStored =
+	typeof localStorage !== 'undefined' && localStorage.getItem(ZOOM_KEY) !== null;
+
+const stored = hasStored
+	? parseFloat(localStorage.getItem(ZOOM_KEY)!)
 	: DEFAULT_ZOOM;
+
+// On first run (no stored value), persist the default immediately so that
+// subsequent loads see it as a user preference and not a first-run event.
+if (!hasStored && typeof localStorage !== 'undefined') {
+	localStorage.setItem(ZOOM_KEY, String(DEFAULT_ZOOM));
+}
 
 // Clamp to nearest valid step on load (handles stale/corrupt values)
 let _zoom = $state<number>(

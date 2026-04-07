@@ -54,7 +54,7 @@
 								: 'text-status-warn hover:text-primary cursor-pointer'
 						)}
 						onclick={ui.resetZoom}
-						title="Reset zoom (Ctrl+0)"
+						title="Reset zoom to 150% (Ctrl+0)"
 					>{ui.zoomPct}%</button>
 					<button
 						class="h-6 w-6 rounded text-base text-muted-foreground hover:text-primary disabled:opacity-30 transition-colors"
@@ -64,21 +64,50 @@
 					>+</button>
 				</div>
 
-				<!-- Bug report button -->
+				<!-- Copy SUMMARY button — only shown when a report is available -->
+				{#if diagnostic.report}
+					<button
+						class={cn(
+							'rounded-md border border-border px-3 py-1.5 text-sm',
+							'flex items-center gap-1.5 transition-colors duration-150',
+							diagnostic.copyFeedback
+								? 'border-status-pass/50 text-status-pass'
+								: 'text-muted-foreground hover:text-primary hover:border-primary/50'
+						)}
+						onclick={diagnostic.copySummaryText}
+						title="Copy SUMMARY.txt to clipboard"
+					>
+						{#if diagnostic.copyFeedback}
+							✓ Copied!
+						{:else}
+							⎘ Copy summary
+						{/if}
+					</button>
+				{/if}
+
+				<!-- Bug report button — shows spinner while generating -->
 				<button
 					class={cn(
 						'rounded-md border border-border px-3 py-1.5 text-sm',
+						'flex items-center gap-1.5 transition-colors duration-150',
 						'text-muted-foreground hover:text-primary hover:border-primary/50',
-						'transition-colors duration-150',
-						!diagnostic.report && 'opacity-50 cursor-not-allowed'
+						(!diagnostic.report || diagnostic.generatingReport) && 'opacity-50 cursor-not-allowed'
 					)}
-					disabled={!diagnostic.report}
+					disabled={!diagnostic.report || diagnostic.generatingReport}
 					onclick={async () => {
 						const path = await diagnostic.generateBugReport();
 						if (path) alert(`Bug report saved to:\n${path}`);
 					}}
 				>
-					⬇ Bug report
+					{#if diagnostic.generatingReport}
+						<span
+							class="inline-block h-3 w-3 rounded-full border border-current border-t-transparent animate-spin"
+							aria-hidden="true"
+						/>
+						Generating…
+					{:else}
+						⬇ Bug report
+					{/if}
 				</button>
 			</div>
 		</div>
