@@ -17,11 +17,11 @@ const stored = typeof localStorage !== 'undefined'
 	: DEFAULT_ZOOM;
 
 // Clamp to nearest valid step on load (handles stale/corrupt values)
-const initial = ZOOM_STEPS.reduce((prev, cur) =>
-	Math.abs(cur - stored) < Math.abs(prev - stored) ? cur : prev
+let _zoom = $state<number>(
+	ZOOM_STEPS.reduce((prev, cur) =>
+		Math.abs(cur - stored) < Math.abs(prev - stored) ? cur : prev
+	)
 );
-
-let _zoom = $state<number>(initial);
 
 // ── Apply ──────────────────────────────────────────────────────────────────
 
