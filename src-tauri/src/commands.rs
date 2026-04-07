@@ -280,6 +280,55 @@ fn build_summary_text(report: &crate::domain::types::DiagnosticReport) -> String
     out
 }
 
+// ── KWin journal tail ──────────────────────────────────────────────────────
+
+/// Fetch recent `plasma-kwin_wayland` journal lines for the live tail panel.
+///
+/// Returns up to `lines` recent entries (default 80) as a `Vec<String>`.
+/// Each entry is a raw `journalctl --output=short` line — timestamp, unit,
+/// and message in one readable string.
+///
+/// If `filter` is non-empty it is passed as `--grep` to journalctl so only
+/// matching lines are returned, mirroring the targeted extracts used in
+/// `generate_bug_report`.
+///
+/// Security note: `filter` is a single argument (not shell-interpolated),
+/// so shell metacharacters are harmless.  We cap it to 200 chars and strip
+/// NUL bytes as basic hygiene.
+#[tauri::command]
+pub async fn get_kwin_journal(
+    lines: Option<u32>,
+    filter: Option<String>,
+) -> Result<Vec<String>, String> {
+    let n = lines.unwrap_or(80).min(500).to_string();
+
+    let safe_filter = filter
+        .as_deref()
+        .map(|f| f.chars().take(200).filter(|&c| c != '\0').collect::<String>())
+        .filter(|f| !f.is_empty());
+
+    let mut cmd = Command::new("journalctl");
+    cmd.args(["--user", "-u", "plasma-kwin_wayland", "-n", &n, "--no-pager", "--output=short"]);
+    if let Some(ref grep) = safe_filter {
+        cmd.args(["--grep", grep]);
+    }
+
+    let output = cmd.output().map_err(|e| format!("journalctl error: {e}"))?;
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    let result: Vec<String> = text
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.to_string())
+        .collect();
+
+    if result.is_empty() {
+        return Ok(vec!["(no journal entries for plasma-kwin_wayland)".into()]);
+    }
+
+    Ok(result)
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 fn gather_system_info() -> SystemInfo {

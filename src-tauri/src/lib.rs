@@ -1,9 +1,10 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 pub mod cli;
 pub mod commands;
 pub mod domain;
 pub mod adapters;
 
-use commands::{execute_fix, generate_bug_report, run_capture_test, run_diagnostics};
+use commands::{execute_fix, generate_bug_report, get_kwin_journal, run_capture_test, run_diagnostics};
 
 /// Launch the Tauri GUI window.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -15,6 +16,7 @@ pub fn run_gui() {
             execute_fix,
             run_capture_test,
             generate_bug_report,
+            get_kwin_journal,
         ])
         .run(tauri::generate_context!())
         .expect("error while running wayland-spectre");

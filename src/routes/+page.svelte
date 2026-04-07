@@ -6,6 +6,7 @@
 	import LayerRow from '$lib/components/LayerRow.svelte';
 	import SummaryBar from '$lib/components/SummaryBar.svelte';
 	import CaptureTest from '$lib/components/CaptureTest.svelte';
+	import KwinJournal from '$lib/components/KwinJournal.svelte';
 	import { cn } from '$lib/utils';
 
 	const LAYER_ORDER: LayerLabel[] = ['L0', 'L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7'];
@@ -177,6 +178,9 @@
 					running={diagnostic.captureRunning}
 					onRun={diagnostic.runCaptureTest}
 				/>
+
+				<!-- KWin journal tail — collapsible, expand to inspect startup errors -->
+				<KwinJournal />
 
 			<!-- Empty state -->
 			{:else}
