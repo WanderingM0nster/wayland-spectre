@@ -1,0 +1,66 @@
+[package]
+name = "wayland-spectre"
+version = "0.1.0"
+description = "Wayland screen sharing diagnostics for KDE Plasma / Bazzite"
+authors = ["WanderingMonster"]
+edition = "2021"
+
+# Feature flags for conditional compilation
+[features]
+# Only include Tauri when building the GUI
+custom-protocol = ["tauri/custom-protocol"]
+default = ["custom-protocol"]
+
+[lib]
+# cdylib for Tauri mobile (future), rlib for tests
+crate-type = ["staticlib", "cdylib", "rlib"]
+name = "wayland_spectre_lib"
+
+[[bin]]
+name = "wayland-spectre"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Tauri
+tauri = { version = "2", features = ["devtools"] }
+tauri-plugin-shell = "2"
+
+# Serialisation
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# CLI argument parsing
+clap = { version = "4", features = ["derive", "color"] }
+
+# Terminal colour output — respects NO_COLOR and isatty automatically
+owo-colors = { version = "4", features = ["supports-colors"] }
+supports-color = "3"
+
+# D-Bus / portal
+zbus = { version = "4", default-features = false, features = ["tokio"] }
+
+# Wayland protocol probing (Phase 2: native bindings)
+# TODO Session 2: uncomment and implement native probing
+# wayland-client = "0.31"
+# wayland-protocols = { version = "0.32", features = ["unstable"] }
+# wayland-protocols-plasma = "0.3"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+[profile.release]
+opt-level = "s"    # Optimise for size
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"
