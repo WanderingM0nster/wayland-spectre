@@ -63,6 +63,7 @@ fn check_driver_loaded() -> Vec<DiagnosticResult> {
 // ── Pure parsing helpers (also used by tests) ────────────────────────────
 
 /// Extract the driver version string from /proc/driver/nvidia/version content.
+#[allow(dead_code)]
 pub(crate) fn parse_driver_version(proc_content: &str) -> Option<String> {
     proc_content.lines().next().and_then(|line| {
         line.split_whitespace()
@@ -75,6 +76,7 @@ pub(crate) fn parse_driver_version(proc_content: &str) -> Option<String> {
 }
 
 /// Returns true if the /proc/driver/nvidia/version content indicates open modules.
+#[allow(dead_code)]
 pub(crate) fn is_open_module(proc_content: &str) -> bool {
     proc_content.lines().next()
         .map(|l| l.contains("Open"))
@@ -133,11 +135,29 @@ fn check_kernel_modesetting() -> Vec<DiagnosticResult> {
             "Add nvidia-drm.modeset=1 to kernel cmdline in /etc/kernel/cmdline then rpm-ostree kargs",
             Confidence::High,
         )],
-        None => vec![DiagnosticResult::skip(
-            Layer::L0,
-            "nvidia_drm_modeset",
-            "Could not read nvidia_drm module parameter",
-        )],
+        None => {
+            // Driver 515+ bakes modeset=1 into the build when using open modules;
+            // the sysfs parameter may be absent on recent kernels. Check driver version.
+            let version_content = fs::read_to_string("/proc/driver/nvidia/version").unwrap_or_default();
+            let major: Option<u32> = version_content
+                .lines().next()
+                .and_then(|l| l.split_whitespace().find(|s| s.contains('.')))
+                .and_then(|v| v.split('.').next())
+                .and_then(|s| s.parse().ok());
+            if major.map(|m| m >= 515).unwrap_or(false) {
+                vec![DiagnosticResult::pass(
+                    Layer::L0,
+                    "nvidia_drm_modeset",
+                    "nvidia-drm modeset parameter absent — driver ≥515 open modules                      enable KMS by default; no cmdline override required",
+                )]
+            } else {
+                vec![DiagnosticResult::skip(
+                    Layer::L0,
+                    "nvidia_drm_modeset",
+                    "Could not read nvidia_drm module parameter",
+                )]
+            }
+        }
     }
 }
 

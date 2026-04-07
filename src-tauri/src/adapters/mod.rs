@@ -2,8 +2,8 @@
 //! Each adapter exposes an async `check_*()` function returning
 //! `Vec<DiagnosticResult>`. They share no state.
 //!
-//! Current strategy: subprocess-based (matching Phase 1 bash script).
-//! Session 2 will replace wayland + dbus with native crate bindings.
+//! Session 3: kwin.rs converted from subprocess (busctl) to native zbus.
+//! All seven adapters now use only native crate bindings — no subprocess calls.
 
 pub mod dbus;
 pub mod env;
