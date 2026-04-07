@@ -248,7 +248,7 @@ fn check_tiled_display(info: &str) -> Vec<DiagnosticResult> {
                  This is the probable root cause of the L3 FAILs. \
                  Tracked at NVIDIA forum 331077."
             ),
-            Some("See https://bugs.kde.org/show_bug.cgi?id=493277".into()),
+            Some("xdg-open https://bugs.kde.org/show_bug.cgi?id=493277".into()),
             Confidence::High,
         )],
     }

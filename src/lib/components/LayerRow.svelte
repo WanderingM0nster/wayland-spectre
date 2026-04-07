@@ -94,7 +94,7 @@
 										({result.confidence})
 									</span>
 								</div>
-								<p class="mt-1 text-sm text-muted-foreground">{result.detail}</p>
+								<p class="mt-1 text-sm text-muted-foreground whitespace-pre-wrap">{result.detail}</p>
 								{#if result.fix}
 									<code class="mt-1 block text-xs text-muted-foreground/70">
 										$ {result.fix}

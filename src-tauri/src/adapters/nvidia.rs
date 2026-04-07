@@ -148,7 +148,7 @@ fn check_kernel_modesetting() -> Vec<DiagnosticResult> {
                 vec![DiagnosticResult::pass(
                     Layer::L0,
                     "nvidia_drm_modeset",
-                    "nvidia-drm modeset parameter absent — driver ≥515 open modules                      enable KMS by default; no cmdline override required",
+                    "nvidia-drm modeset parameter absent — driver ≥515 open modules enable KMS by default; no cmdline override required",
                 )]
             } else {
                 vec![DiagnosticResult::skip(

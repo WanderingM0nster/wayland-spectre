@@ -18,6 +18,25 @@ fn main() {
         let code = rt.block_on(cli::run());
         std::process::exit(code);
     } else {
+        // WebKitGTK (the Tauri webview) tries to use the DMABuf renderer by default.
+        // On NVIDIA + Wayland this causes a fatal "Error 71 (Protocol error)" crash
+        // before the window opens. Detect NVIDIA and disable the DMABuf renderer
+        // proactively so the app works out-of-the-box for NVIDIA users.
+        //
+        // This is a WebKitGTK bug, not a Wayland or NVIDIA bug — the workaround is
+        // standard for any GTK app on NVIDIA/Wayland. Upstream: webkit bug #247452.
+        if nvidia_present() {
+            // Only set if not already overridden by the user's environment
+            if std::env::var("WEBKIT_DISABLE_DMABUF_RENDERER").is_err() {
+                std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+            }
+        }
         run_gui();
     }
+}
+
+/// Returns true if the NVIDIA driver is loaded.
+/// Fast path: just check for /proc/driver/nvidia/version — no subprocess needed.
+fn nvidia_present() -> bool {
+    std::path::Path::new("/proc/driver/nvidia/version").exists()
 }

@@ -13,7 +13,7 @@ use wayland_client::{protocol::wl_registry, Connection, Dispatch, QueueHandle};
 use crate::domain::types::{Confidence, DiagnosticResult, Layer};
 
 #[derive(Debug, Clone)]
-struct WlGlobal {
+pub(crate) struct WlGlobal {
     interface: String,
     version: u32,
 }
@@ -527,4 +527,3 @@ mod tests {
         }
     }
 }
-

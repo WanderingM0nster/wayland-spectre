@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { diagnostic } from '$lib/stores/diagnostic.svelte';
+	import { ui } from '$lib/stores/ui.svelte';
 	import type { LayerLabel } from '$lib/types';
 	import LayerRow from '$lib/components/LayerRow.svelte';
 	import SummaryBar from '$lib/components/SummaryBar.svelte';
@@ -13,7 +14,17 @@
 	onMount(() => {
 		diagnostic.runDiagnostics();
 	});
+
+	// Keyboard zoom shortcuts: Ctrl+= / Ctrl++ zoom in, Ctrl+- zoom out, Ctrl+0 reset
+	function handleKeydown(e: KeyboardEvent) {
+		if (!e.ctrlKey) return;
+		if (e.key === '=' || e.key === '+') { e.preventDefault(); ui.zoomIn(); }
+		else if (e.key === '-') { e.preventDefault(); ui.zoomOut(); }
+		else if (e.key === '0') { e.preventDefault(); ui.resetZoom(); }
+	}
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 <div class="flex min-h-screen flex-col bg-background">
 	<!-- Header -->
@@ -26,21 +37,50 @@
 				<p class="text-xs text-muted-foreground">Wayland screen sharing diagnostics · KDE Plasma</p>
 			</div>
 
-			<button
-				class={cn(
-					'rounded-md border border-border px-3 py-1.5 text-sm',
-					'text-muted-foreground hover:text-primary hover:border-primary/50',
-					'transition-colors duration-150',
-					!diagnostic.report && 'opacity-50 cursor-not-allowed'
-				)}
-				disabled={!diagnostic.report}
-				onclick={async () => {
-					const path = await diagnostic.generateBugReport();
-					if (path) alert(`Bug report saved to:\n${path}`);
-				}}
-			>
-				⬇ Bug report
-			</button>
+			<div class="flex items-center gap-2">
+				<!-- Zoom controls -->
+				<div class="flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5">
+					<button
+						class="h-6 w-6 rounded text-base text-muted-foreground hover:text-primary disabled:opacity-30 transition-colors"
+						disabled={!ui.canZoomOut}
+						onclick={ui.zoomOut}
+						title="Zoom out (Ctrl+-)"
+					>−</button>
+					<button
+						class={cn(
+							'min-w-[3rem] text-center text-xs transition-colors',
+							ui.isDefault
+								? 'text-muted-foreground'
+								: 'text-status-warn hover:text-primary cursor-pointer'
+						)}
+						onclick={ui.resetZoom}
+						title="Reset zoom (Ctrl+0)"
+					>{ui.zoomPct}%</button>
+					<button
+						class="h-6 w-6 rounded text-base text-muted-foreground hover:text-primary disabled:opacity-30 transition-colors"
+						disabled={!ui.canZoomIn}
+						onclick={ui.zoomIn}
+						title="Zoom in (Ctrl+=)"
+					>+</button>
+				</div>
+
+				<!-- Bug report button -->
+				<button
+					class={cn(
+						'rounded-md border border-border px-3 py-1.5 text-sm',
+						'text-muted-foreground hover:text-primary hover:border-primary/50',
+						'transition-colors duration-150',
+						!diagnostic.report && 'opacity-50 cursor-not-allowed'
+					)}
+					disabled={!diagnostic.report}
+					onclick={async () => {
+						const path = await diagnostic.generateBugReport();
+						if (path) alert(`Bug report saved to:\n${path}`);
+					}}
+				>
+					⬇ Bug report
+				</button>
+			</div>
 		</div>
 	</header>
 
