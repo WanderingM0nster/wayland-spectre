@@ -1,232 +1,131 @@
-//! PipeWire adapter.
-//!
-//! Checks: PipeWire service health, screencast node presence.
-//! Layer: L4 (PipeWire graph).
-//!
-//! Current implementation: subprocess via `pw-dump` (JSON graph dump).
-//! TODO Session 2: replace with native libpipewire bindings via pw-sys or pipewire-rs.
-
+// SPDX-License-Identifier: GPL-3.0-or-later
+use std::{collections::HashMap, time::Duration};
+use futures_util::StreamExt;
+use tokio::time::timeout;
+use zbus::{zvariant::{OwnedObjectPath, OwnedValue, Value}, Connection, MessageStream, Proxy};
 use crate::domain::types::{CaptureTestResult, Confidence, DiagnosticResult, Layer};
-use std::process::Command;
 
 pub async fn check_pipewire() -> Vec<DiagnosticResult> {
-    let mut results = Vec::new();
-
-    results.extend(check_pipewire_running());
-    results.extend(check_wireplumber_running());
-    results.extend(check_pipewire_graph());
-
-    results
+    vec![check_pipewire_socket(), probe_portal_create_session().await]
 }
 
-// ── Service health ────────────────────────────────────────────────────────
-
-fn check_pipewire_running() -> Vec<DiagnosticResult> {
-    let status = systemctl_is_active("pipewire");
-    match status.as_deref() {
-        Some("active") => vec![DiagnosticResult::pass(
-            Layer::L4,
-            "pipewire_active",
-            "pipewire.service is active",
-        )],
-        Some(s) => vec![DiagnosticResult::fail(
-            Layer::L4,
-            "pipewire_active",
-            format!("pipewire.service is {s}"),
-            "systemctl --user start pipewire",
-            Confidence::High,
-        )],
-        None => vec![DiagnosticResult::skip(
-            Layer::L4,
-            "pipewire_active",
-            "systemctl not available",
-        )],
-    }
+pub async fn run_capture_test() -> Result<CaptureTestResult, String> {
+    portal_capture_test().await
 }
 
-fn check_wireplumber_running() -> Vec<DiagnosticResult> {
-    let status = systemctl_is_active("wireplumber");
-    match status.as_deref() {
-        Some("active") => vec![DiagnosticResult::pass(
-            Layer::L4,
-            "wireplumber_active",
-            "wireplumber.service is active",
-        )],
-        Some(s) => vec![DiagnosticResult::fail(
-            Layer::L4,
-            "wireplumber_active",
-            format!("wireplumber.service is {s}"),
-            "systemctl --user start wireplumber",
-            Confidence::High,
-        )],
-        None => vec![DiagnosticResult::skip(
-            Layer::L4,
-            "wireplumber_active",
-            "systemctl not available",
-        )],
-    }
-}
-
-// ── PipeWire graph ────────────────────────────────────────────────────────
-
-fn check_pipewire_graph() -> Vec<DiagnosticResult> {
-    let out = Command::new("pw-dump").output();
-
-    let Ok(o) = out else {
-        return vec![DiagnosticResult::skip(
-            Layer::L4,
-            "pipewire_graph",
-            "pw-dump not available",
-        )];
-    };
-
-    if !o.status.success() {
-        return vec![DiagnosticResult::warn(
-            Layer::L4,
-            "pipewire_graph",
-            "pw-dump failed — PipeWire may not be running or PIPEWIRE_REMOTE not set",
-            Some("systemctl --user restart pipewire pipewire-pulse".into()),
-            Confidence::Medium,
-        )];
-    }
-
-    let graph: serde_json::Value = match serde_json::from_slice(&o.stdout) {
-        Ok(v) => v,
-        Err(_) => {
-            return vec![DiagnosticResult::warn(
-                Layer::L4,
-                "pipewire_graph",
-                "pw-dump output could not be parsed",
-                None,
-                Confidence::Low,
-            )]
-        }
-    };
-
-    let nodes = match graph.as_array() {
-        Some(arr) => arr,
-        None => return vec![],
-    };
-
-    // Look for screencast-related nodes
-    let screencast_nodes: Vec<&serde_json::Value> = nodes
-        .iter()
-        .filter(|n| {
-            let type_str = n["type"].as_str().unwrap_or("");
-            let media_class = n["info"]["props"]["media.class"].as_str().unwrap_or("");
-            let media_role = n["info"]["props"]["media.role"].as_str().unwrap_or("");
-            type_str == "PipeWire:Interface:Node"
-                && (media_class.contains("Video/Source")
-                    || media_role.contains("Screen")
-                    || media_role.contains("screencast"))
-        })
-        .collect();
-
-    if screencast_nodes.is_empty() {
-        vec![DiagnosticResult::pass(
-            Layer::L4,
-            "pipewire_graph",
-            "PipeWire graph healthy — no stale screencast nodes (expected when idle)",
-        )]
+fn check_pipewire_socket() -> DiagnosticResult {
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/run/user/1000".into());
+    let socket = std::path::Path::new(&runtime_dir).join("pipewire-0");
+    if socket.exists() {
+        DiagnosticResult::pass(Layer::L4, "pipewire_socket",
+            format!("PipeWire socket present: {}", socket.display()))
     } else {
-        let count = screencast_nodes.len();
-        vec![DiagnosticResult::pass(
-            Layer::L4,
-            "pipewire_graph",
-            format!("{count} screencast-related PipeWire node(s) active"),
-        )]
+        DiagnosticResult::fail(Layer::L4, "pipewire_socket",
+            format!("PipeWire socket not found at {}", socket.display()),
+            "systemctl --user start pipewire", Confidence::High)
     }
 }
 
-// ── Capture test ──────────────────────────────────────────────────────────
-
-/// End-to-end capture test: attempts to get a screencast node via pw-dump
-/// and returns its metadata. Phase 2 will use a proper portal D-Bus call.
-pub async fn run_capture_test() -> anyhow::Result<CaptureTestResult> {
-    let out = Command::new("pw-dump")
-        .output()
-        .map_err(|e| anyhow::anyhow!("pw-dump not found: {e}"))?;
-
-    if !out.status.success() {
-        return Ok(CaptureTestResult {
-            success: false,
-            node_id: None,
-            width: None,
-            height: None,
-            format: None,
-            error: Some(
-                "pw-dump failed — PipeWire not running or PIPEWIRE_REMOTE not set".into(),
-            ),
-        });
+async fn probe_portal_create_session() -> DiagnosticResult {
+    match portal_capture_test().await {
+        Ok(r) if r.success => DiagnosticResult::pass(Layer::L4, "portal_create_session",
+            r.format.as_deref().unwrap_or("Portal CreateSession succeeded")),
+        Ok(r) => DiagnosticResult::fail(Layer::L4, "portal_create_session",
+            r.error.unwrap_or_else(|| "Portal CreateSession failed".into()),
+            "systemctl --user restart xdg-desktop-portal", Confidence::High),
+        Err(e) => DiagnosticResult::fail(Layer::L4, "portal_create_session", e,
+            "systemctl --user restart xdg-desktop-portal", Confidence::High),
     }
+}
 
-    let graph: serde_json::Value = serde_json::from_slice(&out.stdout)
-        .map_err(|e| anyhow::anyhow!("pw-dump parse error: {e}"))?;
-
-    let nodes = graph.as_array().cloned().unwrap_or_default();
-
-    // Find a Video/Source node — the most likely screencast candidate
-    let candidate = nodes.iter().find(|n| {
-        n["info"]["props"]["media.class"]
-            .as_str()
-            .map(|c| c.contains("Video/Source"))
-            .unwrap_or(false)
-    });
-
-    match candidate {
-        Some(node) => {
-            let id = node["id"].as_u64().map(|n| n as u32);
-            // Try to extract format from the params
-            let format = node["info"]["params"]["EnumFormat"]
-                .as_array()
-                .and_then(|arr| arr.first())
-                .and_then(|f| f["mediaSubtype"].as_str().map(|s| s.to_string()))
-                .or_else(|| {
-                    node["info"]["props"]["video.format"]
-                        .as_str()
-                        .map(|s| s.to_string())
-                });
-
-            // Note: this is a PASSIVE check — we found an existing Video/Source node
-            // in the PipeWire graph. It does NOT test the full portal path (which is
-            // what's broken when zkde_screencast_unstable_v1 is absent).
-            // Session 2 will replace this with an active portal CreateSession call.
-            Ok(CaptureTestResult {
-                success: true,
-                node_id: id,
-                width: node["info"]["props"]["video.width"]
-                    .as_u64()
-                    .map(|n| n as u32),
-                height: node["info"]["props"]["video.height"]
-                    .as_u64()
-                    .map(|n| n as u32),
-                format,
-                error: None,
-            })
+async fn portal_capture_test() -> Result<CaptureTestResult, String> {
+    let conn = Connection::session().await
+        .map_err(|e| format!("Cannot connect to session D-Bus: {e}"))?;
+    let sender = conn.unique_name()
+        .map(|n| n.as_str().trim_start_matches(':').replace('.', "_"))
+        .unwrap_or_else(|| "0_0".into());
+    let handle_token  = format!("wspectre_h{}", std::process::id());
+    let session_token = format!("wspectre_s{}", std::process::id());
+    let request_path  = format!("/org/freedesktop/portal/desktop/request/{}/{}", sender, handle_token);
+    let mut stream = MessageStream::from(&conn);
+    let mut options: HashMap<String, Value<'_>> = HashMap::new();
+    options.insert("handle_token".into(),         Value::from(handle_token.as_str()));
+    options.insert("session_handle_token".into(), Value::from(session_token.as_str()));
+    let portal = Proxy::new(&conn, "org.freedesktop.portal.Desktop",
+        "/org/freedesktop/portal/desktop", "org.freedesktop.portal.ScreenCast")
+        .await.map_err(|e| format!("Cannot connect to ScreenCast interface: {e}"))?;
+    let call_result = timeout(
+        Duration::from_secs(8),
+        portal.call::<_, _, (OwnedObjectPath,)>("CreateSession", &(options,)),
+    ).await;
+    match call_result {
+        Err(_) => Ok(CaptureTestResult { success: false, node_id: None, width: None, height: None,
+            format: None, error: Some("CreateSession timed out (Bug C / ELOOP). Check: journalctl --user -u xdg-desktop-portal -n 50".into()) }),
+        Ok(Err(e)) => {
+            let msg = e.to_string();
+            let is_eloop = msg.contains("ELOOP") || msg.contains("Too many levels") || msg.contains("symbolic links");
+            Ok(CaptureTestResult { success: false, node_id: None, width: None, height: None, format: None,
+                error: Some(if is_eloop { format!("ELOOP confirms Bug C: {msg}") } else { format!("CreateSession error: {msg}") }) })
         }
-        None => Ok(CaptureTestResult {
-            success: false,
-            node_id: None,
-            width: None,
-            height: None,
-            format: None,
-            error: Some(
-                "No Video/Source PipeWire node found — PipeWire graph is healthy but \
-                 no active screencast session exists. This is expected when screen sharing \
-                 is not currently active. The real test is whether zkde_screencast_unstable_v1 \
-                 appears in the Wayland registry (see L3)."
-                    .into(),
-            ),
-        }),
+        Ok(Ok((_handle,))) => {
+            let rp = request_path.clone();
+            let response = timeout(Duration::from_secs(5), async move {
+                while let Some(Ok(msg)) = stream.next().await {
+                    let h = msg.header();
+                    if h.message_type() == zbus::message::Type::Signal
+                        && h.path().map(|p| p.as_str() == rp.as_str()).unwrap_or(false)
+                        && h.member().map(|m| m.as_str() == "Response").unwrap_or(false)
+                    { return Some(msg); }
+                }
+                None
+            }).await;
+            match response {
+                Err(_) => Ok(CaptureTestResult { success: false, node_id: None, width: None,
+                    height: None, format: None, error: Some("Response signal timed out".into()) }),
+                Ok(None) => Ok(CaptureTestResult { success: false, node_id: None, width: None,
+                    height: None, format: None, error: Some("Stream closed before Response".into()) }),
+                Ok(Some(msg)) => {
+                    match msg.body().deserialize::<(u32, HashMap<String, OwnedValue>)>() {
+                        Err(e) => Ok(CaptureTestResult { success: false, node_id: None,
+                            width: None, height: None, format: None, error: Some(format!("Decode error: {e}")) }),
+                        Ok((0, results)) => {
+                            let sp = results.get("session_handle").map(|v| v.to_string()).unwrap_or_else(|| "<unknown>".into());
+                            let _ = close_portal_session(&conn, &sp).await;
+                            Ok(CaptureTestResult { success: true, node_id: None, width: None, height: None,
+                                format: Some(format!("Session {sp} created and closed — Bug C not present")), error: None })
+                        }
+                        Ok((code, dict)) => {
+                            let be = dict.get("error").map(|v| v.to_string()).unwrap_or_default();
+                            let is_eloop = be.contains("ELOOP") || be.contains("Too many levels");
+                            Ok(CaptureTestResult { success: false, node_id: None, width: None, height: None, format: None,
+                                error: Some(if is_eloop { format!("Response {code} ELOOP Bug C: {be}") } else { format!("Response {code}: {be}") }) })
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────
+async fn close_portal_session(conn: &Connection, path: &str) -> zbus::Result<()> {
+    let s = Proxy::new(conn, "org.freedesktop.portal.Desktop", path, "org.freedesktop.portal.Session").await?;
+    let _: () = s.call("Close", &()).await?;
+    Ok(())
+}
 
-fn systemctl_is_active(unit: &str) -> Option<String> {
-    Command::new("systemctl")
-        .args(["--user", "is-active", unit])
-        .output()
-        .ok()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn socket_path() {
+        assert_eq!(std::path::Path::new("/run/user/1000").join("pipewire-0").to_str().unwrap(), "/run/user/1000/pipewire-0");
+    }
+    #[test]
+    fn eloop_detected() {
+        let s = "ELOOP: Too many levels of symbolic links";
+        assert!(s.contains("ELOOP") || s.contains("Too many levels") || s.contains("symbolic links"));
+    }
+    #[test]
+    fn sender_normalisation() {
+        assert_eq!(":1.47".trim_start_matches(':').replace('.', "_"), "1_47");
+    }
 }

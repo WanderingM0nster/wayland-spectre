@@ -1,0 +1,19 @@
+# ── Session 2: native crate bindings ──────────────────────────────────────────
+#
+# In src-tauri/Cargo.toml, apply these changes:
+#
+# 1. UNCOMMENT (already stubbed per brief):
+#        wayland-client = "0.31"
+#    CHANGE TO:
+wayland-client = "0.31"          # 0.31.14 — smithay wayland-client
+
+# 2. ADD these new dependencies:
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+    # zbus 5.14.0 — default-features=false avoids the async-io background thread
+    # (Tauri v2 already owns the tokio runtime; we don't want a second I/O thread)
+futures-util = "0.3"             # 0.3.32 — StreamExt for MessageStream iteration
+
+# 3. tokio should already be present via tauri; if not, add:
+#    tokio = { version = "1", features = ["full"] }
+#
+# NOTE: zbus 5 re-exports zvariant as zbus::zvariant — no separate dep needed.

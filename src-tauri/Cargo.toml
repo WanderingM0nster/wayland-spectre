@@ -47,7 +47,8 @@ zbus = { version = "4", default-features = false, features = ["tokio"] }
 
 # Wayland protocol probing (Phase 2: native bindings)
 # TODO Session 2: uncomment and implement native probing
-# wayland-client = "0.31"
+wayland-client = "0.31"
+futures-util = "0.3"
 # wayland-protocols = { version = "0.32", features = ["unstable"] }
 # wayland-protocols-plasma = "0.3"
 
