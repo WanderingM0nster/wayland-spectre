@@ -11,6 +11,13 @@
 
 	const LAYER_ORDER: LayerLabel[] = ['L0', 'L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7'];
 
+	// Auto-expand KWin Journal when the effect-not-activating failure is detected.
+	const kwinEffectFail = $derived(
+		diagnostic.report?.results.some(
+			(r) => r.check === 'kwin_screencast_effect_active' && r.status === 'FAIL'
+		) ?? false
+	);
+
 	// Auto-run on mount
 	onMount(() => {
 		diagnostic.runDiagnostics();
@@ -179,8 +186,8 @@
 					onRun={diagnostic.runCaptureTest}
 				/>
 
-				<!-- KWin journal tail — collapsible, expand to inspect startup errors -->
-				<KwinJournal />
+				<!-- KWin journal tail — auto-expands when kwin_screencast_effect_active is FAIL -->
+				<KwinJournal autoExpand={kwinEffectFail} />
 
 			<!-- Empty state -->
 			{:else}
