@@ -10,6 +10,7 @@
 [![GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue)](LICENSE)
 [![Bazzite](https://img.shields.io/badge/target-Bazzite%20%2F%20KDE%20Plasma-8A2BE2)](https://bazzite.gg)
 [![NVIDIA](https://img.shields.io/badge/GPU-NVIDIA%20open%20modules-76b900)](https://github.com/NVIDIA/open-gpu-kernel-modules)
+[![GitHub mirror](https://img.shields.io/badge/mirror-GitHub-181717?logo=github)](https://github.com/WanderingM0nster/wayland-spectre)
 
 </div>
 
