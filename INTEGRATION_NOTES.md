@@ -81,7 +81,7 @@ Total: ~40 unit tests after Session 2.
 
 ---
 
-## Expected diagnostic change on arctic
+## Expected diagnostic change on test system
 
 **Before (Session 1):**
 - L3 `zkde_screencast_unstable_v1` → FAIL  (wayland-info subprocess failing)
