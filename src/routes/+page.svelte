@@ -11,6 +11,8 @@
 
 	const LAYER_ORDER: LayerLabel[] = ['L0', 'L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7'];
 
+	let redactReport = $state(true);
+
 	// Auto-expand KWin Journal when the effect-not-activating failure is detected.
 	const kwinEffectFail = $derived(
 		diagnostic.report?.results.some(
@@ -93,6 +95,15 @@
 					</button>
 				{/if}
 
+				<!-- Redact checkbox -->
+				<label
+					class="flex items-center gap-1.5 text-xs text-muted-foreground select-none"
+					title="Replace hostname, username, and home paths with safe placeholders"
+				>
+					<input type="checkbox" bind:checked={redactReport} class="accent-primary" />
+					Redact
+				</label>
+
 				<!-- Bug report button — shows spinner while generating -->
 				<button
 					class={cn(
@@ -103,7 +114,7 @@
 					)}
 					disabled={!diagnostic.report || diagnostic.generatingReport}
 					onclick={async () => {
-						const path = await diagnostic.generateBugReport();
+						const path = await diagnostic.generateBugReport(redactReport);
 						if (path) alert(`Bug report saved to:\n${path}`);
 					}}
 				>

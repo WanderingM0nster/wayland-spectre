@@ -29,6 +29,13 @@
 	);
 
 	let pendingConfirm = $state(false);
+	let copyFeedback = $state(false);
+
+	async function copyCommand() {
+		await navigator.clipboard.writeText(fixCommand);
+		copyFeedback = true;
+		setTimeout(() => (copyFeedback = false), 1500);
+	}
 
 	function handleClick() {
 		if (isDestructive && !pendingConfirm) {
@@ -67,25 +74,34 @@
 		</div>
 	</div>
 {:else}
-	<button
-		class={cn(
-			'shrink-0 rounded-md border px-3 py-1.5 text-xs font-medium transition-all duration-150',
-			'border-status-fail/40 text-status-fail hover:bg-status-fail/10',
-			isFixingThis  && 'cursor-wait border-status-warn/40 text-status-warn',
-			isFixingOther && 'cursor-not-allowed opacity-40'
-		)}
-		disabled={fixing !== null}
-		onclick={handleClick}
-	>
-		{#if isFixingThis}
-			<span class="inline-flex items-center gap-1">
-				<span class="animate-spin">⟳</span>
-				Fixing…
-			</span>
-		{:else if isDestructive}
-			Fix it ⚠
-		{:else}
-			Fix it
-		{/if}
-	</button>
+	<div class="flex items-center gap-1.5">
+		<button
+			class="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors"
+			onclick={copyCommand}
+			title="Copy fix command to clipboard"
+		>
+			{copyFeedback ? '✓ Copied' : '⎘ Copy cmd'}
+		</button>
+		<button
+			class={cn(
+				'shrink-0 rounded-md border px-3 py-1.5 text-xs font-medium transition-all duration-150',
+				'border-status-fail/40 text-status-fail hover:bg-status-fail/10',
+				isFixingThis  && 'cursor-wait border-status-warn/40 text-status-warn',
+				isFixingOther && 'cursor-not-allowed opacity-40'
+			)}
+			disabled={fixing !== null}
+			onclick={handleClick}
+		>
+			{#if isFixingThis}
+				<span class="inline-flex items-center gap-1">
+					<span class="animate-spin">⟳</span>
+					Fixing…
+				</span>
+			{:else if isDestructive}
+				Fix it ⚠
+			{:else}
+				Fix it
+			{/if}
+		</button>
+	</div>
 {/if}

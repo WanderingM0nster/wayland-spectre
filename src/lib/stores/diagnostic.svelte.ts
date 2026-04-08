@@ -87,10 +87,10 @@ async function runCaptureTest() {
 	}
 }
 
-async function generateBugReport(): Promise<string | null> {
+async function generateBugReport(redact: boolean = false): Promise<string | null> {
 	_generatingReport = true;
 	try {
-		return await invoke<string>('generate_bug_report');
+		return await invoke<string>('generate_bug_report', { redact });
 	} catch (e) {
 		_error = String(e);
 		return null;

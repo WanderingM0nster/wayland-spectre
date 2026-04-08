@@ -102,21 +102,39 @@ pub async fn run_capture_test() -> Result<CaptureTestResult, String> {
 
 /// Bundle a bug report: JSON diagnostics + recent journal excerpts + system info.
 /// Writes to /tmp/wayland-spectre-bugreport-<epoch>.tar.gz and returns the path.
+///
+/// When `redact` is true, hostname, username, and home paths are replaced with
+/// safe placeholders (`<hostname>`, `<user>`) in all output files.
 #[tauri::command]
-pub async fn generate_bug_report() -> Result<String, String> {
+pub async fn generate_bug_report(redact: bool) -> Result<String, String> {
     let epoch = Utc::now().timestamp();
     let dir = format!("/tmp/wayland-spectre-bugreport-{epoch}");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
+    // Gather redaction values up front (even if not redacting, we need hostname)
+    let real_hostname = std::fs::read_to_string("/etc/hostname")
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let real_username = std::env::var("USER").unwrap_or_default();
+
+    let maybe_redact = |text: &str| -> String {
+        if redact {
+            redact_text(text, &real_hostname, &real_username)
+        } else {
+            text.to_string()
+        }
+    };
+
     // 1. Run fresh diagnostics and save JSON
     let report = run_diagnostics().await?;
     let json = serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?;
-    std::fs::write(format!("{dir}/diagnostics.json"), &json).map_err(|e| e.to_string())?;
+    std::fs::write(format!("{dir}/diagnostics.json"), maybe_redact(&json)).map_err(|e| e.to_string())?;
 
     // 2. Human-readable SUMMARY.txt — failures and warnings only, for easy
     //    copy-paste into bug tracker comments (NVIDIA forum, KDE Bugzilla)
     let summary_text = build_summary_text(&report);
-    std::fs::write(format!("{dir}/SUMMARY.txt"), summary_text).map_err(|e| e.to_string())?;
+    std::fs::write(format!("{dir}/SUMMARY.txt"), maybe_redact(&summary_text)).map_err(|e| e.to_string())?;
 
     // 3. Capture relevant journal units.
     // Non-KWin units: last 200 lines is sufficient.
@@ -125,7 +143,8 @@ pub async fn generate_bug_report() -> Result<String, String> {
             .args(["--user", "-u", unit, "-n", "200", "--no-pager"])
             .output();
         if let Ok(o) = out {
-            let _ = std::fs::write(format!("{dir}/journal-{unit}.log"), o.stdout);
+            let text = String::from_utf8_lossy(&o.stdout);
+            let _ = std::fs::write(format!("{dir}/journal-{unit}.log"), maybe_redact(&text));
         }
     }
 
@@ -135,7 +154,8 @@ pub async fn generate_bug_report() -> Result<String, String> {
         .args(["--user", "-u", "plasma-kwin_wayland", "-b", "--no-pager"])
         .output()
     {
-        let _ = std::fs::write(format!("{dir}/journal-plasma-kwin_wayland.log"), o.stdout);
+        let text = String::from_utf8_lossy(&o.stdout);
+        let _ = std::fs::write(format!("{dir}/journal-plasma-kwin_wayland.log"), maybe_redact(&text));
     }
 
     // 3c. Targeted KWin effect-startup extract — grep for the specific
@@ -150,9 +170,10 @@ pub async fn generate_bug_report() -> Result<String, String> {
         {
             if !o.stdout.is_empty() {
                 let slug = grep_term.replace(' ', "_");
+                let text = String::from_utf8_lossy(&o.stdout);
                 let _ = std::fs::write(
                     format!("{dir}/kwin-startup-{slug}.log"),
-                    o.stdout,
+                    maybe_redact(&text),
                 );
             }
         }
@@ -181,30 +202,33 @@ pub async fn generate_bug_report() -> Result<String, String> {
         } else {
             raw.into_owned()
         };
-        let _ = std::fs::write(format!("{dir}/kwin-support-info.txt"), content);
+        let _ = std::fs::write(format!("{dir}/kwin-support-info.txt"), maybe_redact(&content));
     }
 
     // 5. NVIDIA driver info — useful for NVIDIA forum reports
     if let Ok(content) = std::fs::read_to_string("/proc/driver/nvidia/version") {
-        let _ = std::fs::write(format!("{dir}/nvidia-driver-version.txt"), content);
+        let _ = std::fs::write(format!("{dir}/nvidia-driver-version.txt"), maybe_redact(&content));
     }
     if let Ok(o) = Command::new("nvidia-smi").args(["--query-gpu=name,driver_version,vbios_version,pci.bus_id", "--format=csv"]).output() {
-        let _ = std::fs::write(format!("{dir}/nvidia-smi.txt"), o.stdout);
+        let text = String::from_utf8_lossy(&o.stdout);
+        let _ = std::fs::write(format!("{dir}/nvidia-smi.txt"), maybe_redact(&text));
     }
 
     // 6. wayland-info if available
     if let Ok(o) = Command::new("wayland-info").output() {
-        let _ = std::fs::write(format!("{dir}/wayland-info.txt"), o.stdout);
+        let text = String::from_utf8_lossy(&o.stdout);
+        let _ = std::fs::write(format!("{dir}/wayland-info.txt"), maybe_redact(&text));
     }
 
     // 7. wl-info alternative (some distros ship this instead)
     if let Ok(o) = Command::new("wl-info").output() {
-        let _ = std::fs::write(format!("{dir}/wl-info.txt"), o.stdout);
+        let text = String::from_utf8_lossy(&o.stdout);
+        let _ = std::fs::write(format!("{dir}/wl-info.txt"), maybe_redact(&text));
     }
 
     // 8. os-release for image / kernel context
     if let Ok(content) = std::fs::read_to_string("/etc/os-release") {
-        let _ = std::fs::write(format!("{dir}/os-release.txt"), content);
+        let _ = std::fs::write(format!("{dir}/os-release.txt"), maybe_redact(&content));
     }
 
     // 9. Tar it up
@@ -308,7 +332,7 @@ pub async fn get_kwin_journal(
         .filter(|f| !f.is_empty());
 
     let mut cmd = Command::new("journalctl");
-    cmd.args(["--user", "-u", "plasma-kwin_wayland", "-n", &n, "--no-pager", "--output=short"]);
+    cmd.args(["--user", "-u", "plasma-kwin_wayland", "-b", "-n", &n, "--no-pager", "--output=short"]);
     if let Some(ref grep) = safe_filter {
         cmd.args(["--grep", grep]);
     }
@@ -327,6 +351,22 @@ pub async fn get_kwin_journal(
     }
 
     Ok(result)
+}
+
+// ── Redaction ─────────────────────────────────────────────────────────────
+
+/// Replace hostname, username, and home directory paths with safe placeholders.
+/// Applied to all bug report output files when the user opts in.
+fn redact_text(text: &str, hostname: &str, username: &str) -> String {
+    let mut out = text.to_string();
+    if !hostname.is_empty() {
+        out = out.replace(hostname, "<hostname>");
+    }
+    if !username.is_empty() {
+        out = out.replace(&format!("/home/{username}"), "/home/<user>");
+        out = out.replace(username, "<user>");
+    }
+    out
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────

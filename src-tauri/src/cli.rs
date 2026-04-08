@@ -58,7 +58,11 @@ enum Commands {
         layer: Option<String>,
     },
     /// Generate a bug report bundle (JSON + journal excerpts)
-    Report,
+    Report {
+        /// Replace hostname, username, and home paths with safe placeholders
+        #[arg(long)]
+        redact: bool,
+    },
 }
 
 /// Entry point for CLI mode. Returns an exit code (0 = all pass/warn, 1 = failures).
@@ -81,7 +85,7 @@ pub async fn run() -> i32 {
 
     match cli.command.unwrap_or(Commands::Check { json_only: false, layer: None }) {
         Commands::Check { json_only, layer } => run_checks(json_only, layer, use_color).await,
-        Commands::Report => run_report().await,
+        Commands::Report { redact } => run_report(redact).await,
     }
 }
 
@@ -247,9 +251,13 @@ fn parse_layer_filter(s: &str) -> Option<Layer> {
     }
 }
 
-async fn run_report() -> i32 {
-    println!("Generating bug report bundle…");
-    match generate_bug_report().await {
+async fn run_report(redact: bool) -> i32 {
+    if redact {
+        println!("Generating bug report bundle (redacted)…");
+    } else {
+        println!("Generating bug report bundle…");
+    }
+    match generate_bug_report(redact).await {
         Ok(path) => {
             println!("Bug report saved: {path}");
             println!();
