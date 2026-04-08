@@ -175,8 +175,8 @@ Kernel: 6.17.7-ba29.fc43.x86_64
 ## Journal — Failing Session (tiled display only, relevant excerpt)
 
 ```
-Apr 08 13:48:14 arctic kwin_wayland[3450]: No backend specified, automatically choosing drm
-Apr 08 13:48:17 arctic kwin_wayland[3450]: Failed to register with host portal
+Apr 08 HH:MM:SS <hostname> kwin_wayland[<pid>]: No backend specified, automatically choosing drm
+Apr 08 HH:MM:SS <hostname> kwin_wayland[<pid>]: Failed to register with host portal
   QDBusError("org.freedesktop.portal.Error.Failed",
   "Could not register app ID: Unable to open /proc/3450/root")
 ```
