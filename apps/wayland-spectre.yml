@@ -21,13 +21,13 @@
   categories:
     - Utility
   authors:
-    - name: WanderingMonster
-      url: https://forgejo.wanderingmonster.dev/WanderingMonster
+    - name: WanderingM0nster
+      url: https://github.com/WanderingM0nster
   license: GPL-3.0-or-later
   links:
-    - type: Source Code
-      url: https://forgejo.wanderingmonster.dev/WanderingMonster/wayland-spectre
+    - type: GitHub
+      url: WanderingM0nster/wayland-spectre
     - type: Download
       url: https://forgejo.wanderingmonster.dev/WanderingMonster/wayland-spectre/releases/download/v0.3.0/wayland-spectre_0.3.0_amd64.AppImage
   screenshots:
-    - https://forgejo.wanderingmonster.dev/WanderingMonster/wayland-spectre/raw/branch/main/docs/screenshot.jpg
+    - https://raw.githubusercontent.com/WanderingM0nster/wayland-spectre/main/docs/screenshot.jpg
