@@ -1,18 +1,30 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <!--
-  KwinJournal.svelte  — Session 5
+  KwinJournal.svelte  — Session 6
   Collapsible panel displaying recent plasma-kwin_wayland journal entries.
 
   Features:
     - Collapsed by default; expands on click
+    - AUTO-EXPANDS once when autoExpand prop is true (kwin_screencast_effect_active FAIL)
+    - Shows amber "auto · effect FAIL" badge in header when auto-expanded
     - Invokes the `get_kwin_journal` Tauri command on first expand and on refresh
     - Quick-filter chips: All · screencast · effect · crtc · error
     - Line-level colour coding (error → red, warn → amber, screencast/effect → accent)
     - Auto-scroll to bottom on load; manual scroll preserved after
     - Copy-to-clipboard button for the full log
+
+  Session 6 changes:
+    - Added `autoExpand` prop — when it becomes true the panel opens automatically
+      and fires the journal fetch. Gated by `autoExpandedOnce` so the user can
+      close the panel freely; it will not fight them by re-opening.
+    - Added amber "auto · effect FAIL" badge in the header to communicate why
+      the panel opened on its own.
 -->
 <script lang="ts">
 	import { invoke } from '@tauri-apps/api/core';
+
+	// ── Props ────────────────────────────────────────────────────────────────
+	let { autoExpand = false }: { autoExpand?: boolean } = $props();
 
 	// ── State ───────────────────────────────────────────────────────────────
 	let open = $state(false);
@@ -22,8 +34,26 @@
 	let activeFilter = $state<string>('');
 	let copyFeedback = $state(false);
 	let logEl = $state<HTMLElement | null>(null);
+	/**
+	 * Tracks whether the auto-expand has fired at least once.
+	 * Gating on this (not on `open`) prevents the effect from
+	 * fighting the user — once expanded, the panel stays under
+	 * manual control regardless of the autoExpand prop value.
+	 */
+	let autoExpandedOnce = $state(false);
 
 	const QUICK_FILTERS = ['screencast', 'effect', 'crtc', 'error', 'format'];
+
+	// ── Auto-expand: fires once when kwin_screencast_effect_active is FAIL ──
+	$effect(() => {
+		if (autoExpand && !autoExpandedOnce) {
+			open = true;
+			autoExpandedOnce = true;
+			if (lines.length === 0 && !error) {
+				fetchJournal();
+			}
+		}
+	});
 
 	// ── Actions ─────────────────────────────────────────────────────────────
 
@@ -104,6 +134,15 @@
 			{#if lines.length > 0}
 				<span class="rounded-full bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
 					{lines.length} lines
+				</span>
+			{/if}
+			<!-- Amber badge — visible once kwin_screencast_effect_active FAIL triggered open -->
+			{#if autoExpandedOnce}
+				<span
+					class="rounded-full border border-status-warn/40 bg-status-warn/10 px-1.5 py-0.5 text-[10px] font-medium text-status-warn"
+					title="Opened automatically because kwin_screencast_effect_active is FAIL"
+				>
+					auto · effect FAIL
 				</span>
 			{/if}
 		</div>
