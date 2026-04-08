@@ -185,7 +185,8 @@ These are explicitly deferred — do not implement unless asked:
 | Bug | Affects | Check |
 |-----|---------|-------|
 | xdg-desktop-portal #1953 | portal 1.20.3: O_RDONLY\|O_NOFOLLOW on /proc/<pid>/root → ELOOP | `dbus.rs::check_portal_version()` |
-| KDE Bug 518650 | KWin best-effort portal registration timing | `wayland.rs` zkde_screencast check |
+| KDE Bug 518650
+  ✓ KDE bug 518698 — kwin_screencast effect absent from Loaded Effects (tiled display only) — https://bugs.kde.org/show_bug.cgi?id=518698 | KWin best-effort portal registration timing | `wayland.rs` zkde_screencast check |
 | NVIDIA forum 331077 | KWin pageflip timeout on tiled display, Xid 51/69 | `nvidia.rs::check_explicit_sync()` |
 | KDE bug 493277 | CRTC format mismatch AB30 vs AB4H on tiled panels → screencast plugin init failure | `kwin.rs::check_tiled_display()` + `wayland.rs::bug_d_screencast_globals` |
 | KDE bug 503870 | Tile gap / wl_output split on tiled display | `kwin.rs::check_tiled_display()` |
