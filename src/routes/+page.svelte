@@ -104,7 +104,7 @@
 						<span
 							class="inline-block h-3 w-3 rounded-full border border-current border-t-transparent animate-spin"
 							aria-hidden="true"
-						/>
+						></span>
 						Generating…
 					{:else}
 						⬇ Bug report
