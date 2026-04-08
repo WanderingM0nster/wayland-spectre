@@ -13,6 +13,8 @@
 
 </div>
 
+![wayland-spectre screenshot](https://forgejo.wanderingmonster.dev/WanderingMonster/wayland-spectre/raw/branch/main/docs/screenshot.jpg)
+
 ---
 
 ## Who is this for?
@@ -180,6 +182,8 @@ The diagnostics are built around real open bugs. If wayland-spectre points you a
 | [KDE bug 493277](https://bugs.kde.org/show_bug.cgi?id=493277) | CRTC tiling format mismatch (AB30 vs AB4H) prevents KWin screencast plugin init |
 | [KDE bug 503870](https://bugs.kde.org/show_bug.cgi?id=503870) | Tile gap / wl_output split causes KWin protocol advertisement regression |
 | [xdg-desktop-portal #1953](https://github.com/flatpak/xdg-desktop-portal/issues/1953) | ScreenCast API v5 / ELOOP deadlock (Bug C) in portal 1.20.x |
+| [KDE bug 518650](https://bugs.kde.org/show_bug.cgi?id=518650) | KWin should create `zkde_screencast_unstable_v1` regardless of portal registration success |
+| [KDE bug 518698](https://bugs.kde.org/show_bug.cgi?id=518698) | kwin_screencast effect absent from Loaded Effects when tiled display is the only output — secondary monitor resolves failure |
 | Bug D (`bug_d_screencast_globals`) | KWin not advertising `zkde_screencast_unstable_v1` **or** `ext_image_capture_source_v1` — confirmed root cause on tiled 4K + NVIDIA open modules; synthesised at L3 with root-cause hypothesis and upstream links |
 
 ---
