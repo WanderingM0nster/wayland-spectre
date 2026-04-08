@@ -17,6 +17,52 @@
 
 ---
 
+## TL;DR — Screen sharing is broken. What do I do?
+
+> *Someone sent you here, or you found this tool and just want to know if your
+> screen sharing can be fixed. Here's the short version.*
+
+**1. Download and run the app**
+
+Download the latest `wayland-spectre_*.AppImage` from the
+[Releases page](https://forgejo.wanderingmonster.dev/WanderingMonster/wayland-spectre/releases),
+then open a terminal and run:
+
+```bash
+chmod +x wayland-spectre_*.AppImage
+./wayland-spectre_*.AppImage
+```
+
+The app opens, runs all checks automatically, and shows you a colour-coded
+list of what is working (✓ green), needs attention (⚠ amber), or is broken
+(✗ red).
+
+**2. Try the suggested fixes**
+
+Any red ✗ row has a **Fix** button next to it. Click it. The app will apply
+the fix and re-run the checks. If the row turns green, that problem is solved.
+
+**3. Test whether screen sharing now works**
+
+Scroll to the bottom and click **▶ Run test**. If it says the test passed,
+screen sharing should work — try it in your app (OBS, Discord, etc.).
+
+**4. If it's still broken — send a report**
+
+Click **⬇ Bug report** in the top-right corner. It saves a file to `/tmp/`
+with a name like `wayland-spectre-bugreport-1234567890.tar.gz`.
+
+Post in one of these places and attach that file:
+
+- **Bazzite users:** [Bazzite community thread](https://universal-blue.discourse.group/t/11901)
+- **KDE Plasma bugs:** [KDE bug tracker](https://bugs.kde.org) → product: KWin
+- **NVIDIA GPU issues:** [NVIDIA developer forum](https://forums.developer.nvidia.com/t/331077)
+
+Or click **⎘ Copy summary** and paste the text directly into a forum post
+without attaching a file.
+
+---
+
 ## Who is this for?
 
 You are on **KDE Plasma on Wayland**, you have an **NVIDIA GPU** (RTX 30/40/50 series, open kernel modules), and **screen sharing doesn't work** — or works sometimes and silently fails other times. You might be on [Bazzite](https://bazzite.gg), Fedora Kinoite, or another immutable desktop.
