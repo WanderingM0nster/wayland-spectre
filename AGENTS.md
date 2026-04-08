@@ -189,7 +189,7 @@ These are explicitly deferred — do not implement unless asked:
 | NVIDIA forum 331077 | KWin pageflip timeout on tiled display, Xid 51/69 | `nvidia.rs::check_explicit_sync()` |
 | KDE bug 493277 | CRTC format mismatch AB30 vs AB4H on tiled panels → screencast plugin init failure | `kwin.rs::check_tiled_display()` + `wayland.rs::bug_d_screencast_globals` |
 | KDE bug 503870 | Tile gap / wl_output split on tiled display | `kwin.rs::check_tiled_display()` |
-| **Bug D** (synthesised) | KWin NOT advertising `zkde_screencast_unstable_v1` or `ext_image_capture_source_v1` — confirmed root cause on arctic (tiled Dell UP3214Q + NVIDIA open 595.x). Both globals absent → `bug_d_screencast_globals` L3 FAIL | `wayland.rs::build_checks()` |
+| **Bug D** (synthesised) | KWin NOT advertising `zkde_screencast_unstable_v1` or `ext_image_capture_source_v1` — confirmed root cause on test system (tiled Dell UP3214Q + NVIDIA open 595.x). Both globals absent → `bug_d_screencast_globals` L3 FAIL | `wayland.rs::build_checks()` |
 
 ---
 
