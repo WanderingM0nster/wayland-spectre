@@ -63,7 +63,7 @@ The Critical bugs above are gone from this list (addressed). Remaining work:
 ### Tier 1 — Quick wins: test/review existing MRs (days)
 | # | Issue | Severity | Notes |
 |---|-------|----------|-------|
-| 1 | Multi-monitor TILE/MST | Medium | **Test MR !1174** (work/tiled-displays branch) — directly relevant to UP3214Q tiled display. You are one of very few people who can test this meaningfully. May overlap with Bug A fix. ★★★★★ |
+| 1 | Multi-monitor TILE/MST | Medium | **Test MR !1174** (work/tiled-displays branch) — directly relevant to UP3214Q tiled display. You are one of very few people who can test this meaningfully. May overlap with Bug A fix. **Phase 1 done (Session 7):** drm_info + journal posted to [MR !1174 comment](https://invent.kde.org/plasma/kwin/-/merge_requests/1174#note_1466367). Phase 2 (build + test branch) pending Zamundaaa response. ★★★★★ |
 | 2 | Per-app keyboard layouts | Medium/Plasma | Review & test MR !5963 ★★★★☆ |
 | 3 | Graphic tablet multi-strip | Info/Plasma | Test MR #3353, report results ★★★★☆ |
 
@@ -145,7 +145,8 @@ The Critical bugs above are gone from this list (addressed). Remaining work:
 ### Immediate (check first)
 1. **AppImageHub PR #3733** — check CI result; fix if failed; confirm merge status
 2. **KDE bug 518698** — check for Zamundaaa response; reply if needed
-3. **Tier 1 #1 — MR !1174** — test multi-monitor TILE/MST MR on UP3214Q setup
+3. **Tier 1 #1 — MR !1174** — ~~test multi-monitor TILE/MST MR on UP3214Q setup~~
+   Phase 1 done: drm_info + journal [posted](https://invent.kde.org/plasma/kwin/-/merge_requests/1174#note_1466367) 2026-04-08. Phase 2 (build + test) awaiting Zamundaaa response.
 
 ### wayland-spectre v0.4.0 Infernoheart
 Candidate features (decide at session start):
