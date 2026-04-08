@@ -9,6 +9,14 @@
 //!   - `--layer <LAYER>` added to `check` — runs only the nominated layer.
 //!     Accepts L0..L7 (case-insensitive).  All adapters still run in parallel;
 //!     results are filtered before output so timings stay consistent.
+//!
+//! Session 6 changes:
+//!   - `--check <LAYER>` top-level shorthand:
+//!       wayland-spectre --check L3   ≡   wayland-spectre check --layer L3
+//!     Faster to type for common single-layer spot-checks.
+//!   - Colour-coded layer headers: each of the eight layers gets its own
+//!     terminal colour, making layer boundaries instantly scannable.
+//!     Plain text mode (NO_COLOR / non-tty) falls back to "[L3 protocols]".
 
 use crate::adapters;
 use crate::commands::generate_bug_report;
@@ -24,6 +32,14 @@ use supports_color::Stream;
     version
 )]
 struct Cli {
+    /// Shorthand: --check <LAYER>  ≡  check --layer <LAYER>
+    ///
+    /// Runs only the nominated layer without typing the `check` subcommand.
+    /// Example:  wayland-spectre --check L3
+    /// Example:  wayland-spectre --check L7
+    #[arg(long, value_name = "LAYER")]
+    check: Option<String>,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -49,6 +65,19 @@ enum Commands {
 pub async fn run() -> i32 {
     let cli = Cli::parse();
     let use_color = supports_color::on(Stream::Stdout).is_some();
+
+    // --check <LAYER> and a subcommand are mutually exclusive
+    if cli.check.is_some() && cli.command.is_some() {
+        eprintln!("error: --check cannot be combined with a subcommand");
+        eprintln!("  use:  wayland-spectre --check L3");
+        eprintln!("   or:  wayland-spectre check --layer L3");
+        return 2;
+    }
+
+    // --check L3 shorthand  →  check --layer L3
+    if let Some(layer) = cli.check {
+        return run_checks(false, Some(layer), use_color).await;
+    }
 
     match cli.command.unwrap_or(Commands::Check { json_only: false, layer: None }) {
         Commands::Check { json_only, layer } => run_checks(json_only, layer, use_color).await,
@@ -81,7 +110,7 @@ async fn run_checks(json_only: bool, layer_filter: Option<String>, use_color: bo
     all_results.extend(env);
     all_results.extend(kwin);
 
-    // Apply --layer filter if requested
+    // Apply --layer / --check filter if requested
     let filtered: Vec<_> = if let Some(ref wanted) = layer_filter {
         let wanted_upper = wanted.to_uppercase();
         let target = parse_layer_filter(&wanted_upper);
@@ -98,11 +127,9 @@ async fn run_checks(json_only: bool, layer_filter: Option<String>, use_color: bo
     };
 
     if json_only {
-        // Minimal JSON output to stdout — same schema as GUI
         let pass = filtered.iter().filter(|r| r.status == CheckStatus::Pass).count();
         let warn = filtered.iter().filter(|r| r.status == CheckStatus::Warn).count();
         let fail = filtered.iter().filter(|r| r.status == CheckStatus::Fail).count();
-
         let output = serde_json::json!({
             "schema_version": "1",
             "layer_filter": layer_filter,
@@ -129,11 +156,8 @@ async fn run_checks(json_only: bool, layer_filter: Option<String>, use_color: bo
         let layer_str = format!("{:?}", result.layer);
         if layer_str != current_layer {
             current_layer = layer_str.clone();
-            if use_color {
-                println!("\n  {}", layer_str.bold().dimmed());
-            } else {
-                println!("\n  [{layer_str}]");
-            }
+            println!();
+            println!("  {}", format_layer_header(&layer_str, use_color));
         }
 
         let (prefix, coloured_status) = match result.status {
@@ -171,6 +195,41 @@ async fn run_checks(json_only: bool, layer_filter: Option<String>, use_color: bo
 
     print_summary(&filtered, use_color);
     if fail_count > 0 { 1 } else { 0 }
+}
+
+/// Colour-coded layer header with short label.
+fn format_layer_header(layer_str: &str, use_color: bool) -> String {
+    let label = layer_label(layer_str);
+    let full = format!("{layer_str}  {label}");
+    if !use_color {
+        return format!("[{full}]");
+    }
+    match layer_str {
+        "L0" => full.bright_blue().bold().to_string(),
+        "L1" => full.cyan().bold().to_string(),
+        "L2" => full.magenta().bold().to_string(),
+        "L3" => full.yellow().bold().to_string(),
+        "L4" => full.green().bold().to_string(),
+        "L5" => full.bright_cyan().bold().to_string(),
+        "L6" => full.white().bold().to_string(),
+        "L7" => full.bright_red().bold().to_string(),
+        _    => full.bold().to_string(),
+    }
+}
+
+/// Short human-readable label for each layer.
+fn layer_label(layer_str: &str) -> &'static str {
+    match layer_str {
+        "L0" => "hardware / gpu",
+        "L1" => "d-bus / portal session",
+        "L2" => "portal backend",
+        "L3" => "wayland protocols",
+        "L4" => "pipewire",
+        "L5" => "flatpak permissions",
+        "L6" => "environment",
+        "L7" => "kwin plugins",
+        _    => "",
+    }
 }
 
 /// Parse a string like "L3" into a `Layer` variant.
