@@ -28,7 +28,7 @@ consult the bash script.
 | NVIDIA driver | 595.x open modules |
 | KDE Plasma | 6.x, Wayland session |
 | Display | Dell UP3214Q tiled 4K (two 1920×2160 panels, DP-4 + DP-5) |
-| Username | <username> · Hostname: arctic |
+| Username | <username> · Hostname: <hostname> |
 | Package manager | rpm-ostree (not dnf for system packages) |
 | JS package manager | pnpm (never npm or yarn) |
 
@@ -260,7 +260,7 @@ Attach the `.tar.gz` to NVIDIA forum thread 331077 and Bazzite community thread 
 
 - JSON diagnostic report: `/tmp/screenshare-diag-<epoch>.json` (same path as bash script)
 - Bug report bundle: `/tmp/wayland-spectre-bugreport-<epoch>.tar.gz`
-- Creations folder: `<WORKDIR>/`
+- Creations folder: `/path/to/Creations/`
 - Forgejo: `https://forgejo.wanderingmonster.dev/WanderingMonster`
 - NVIDIA forum thread: `https://forums.developer.nvidia.com/t/331077`
 - Bazzite community thread: `https://universal-blue.discourse.group/t/11901`
