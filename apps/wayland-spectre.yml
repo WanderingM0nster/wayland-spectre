@@ -27,7 +27,5 @@
   links:
     - type: GitHub
       url: WanderingM0nster/wayland-spectre
-    - type: Download
-      url: https://forgejo.wanderingmonster.dev/WanderingMonster/wayland-spectre/releases/download/v0.3.0/wayland-spectre_0.3.0_amd64.AppImage
   screenshots:
     - https://raw.githubusercontent.com/WanderingM0nster/wayland-spectre/main/docs/screenshot.jpg
