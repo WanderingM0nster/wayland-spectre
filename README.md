@@ -93,14 +93,20 @@ Each failing check includes the exact `fix:` command to paste — no searching, 
 
 ```bash
 # Run all checks — human-readable colour output
-cargo run --manifest-path src-tauri/Cargo.toml -- check
+wayland-spectre check
+
+# Single layer only (faster for spot-checks)
+wayland-spectre --check L7
+wayland-spectre check --layer L3
 
 # Machine-readable JSON (pipe to jq, save for bug reports)
-cargo run --manifest-path src-tauri/Cargo.toml -- --json-only check
+wayland-spectre check --json-only
 
 # Bundle a full bug report (JSON + journal excerpts → .tar.gz)
-cargo run --manifest-path src-tauri/Cargo.toml -- report
+wayland-spectre report
 ```
+
+Layer reference: L0 GPU/NVIDIA · L1 D-Bus/portal · L2 portal backend · L3 Wayland protocols · L4 PipeWire · L5 Flatpak · L6 environment · L7 KWin plugins
 
 ### GUI (Tauri)
 
@@ -108,6 +114,34 @@ cargo run --manifest-path src-tauri/Cargo.toml -- report
 pnpm install
 pnpm tauri dev
 ```
+
+The GUI runs all checks automatically on launch and presents results as an
+expandable layer pipeline. Several additional tools are available below the
+main results:
+
+**Live Capture Test** — attempts to open a real PipeWire screencast node via
+`xdg-desktop-portal`. Confirms end-to-end whether screensharing actually works
+on your system right now, beyond what the passive checks can tell you. Run it
+after fixing any reported failures to verify the fix worked.
+
+**KWin Journal panel** — displays the last 80 lines of the
+`plasma-kwin_wayland` systemd journal. Quick-filter chips (`screencast`,
+`effect`, `crtc`, `error`, `format`) let you isolate the specific startup log
+lines that explain a failure. Auto-expands when `kwin_screencast_effect_active`
+is FAIL so the evidence surfaces without hunting for it.
+
+**Copy summary** — copies a plain-text `SUMMARY.txt` to the clipboard: system
+info, all failures and warnings with fix commands, and a footer. Paste it
+directly into a forum post or bug comment without downloading anything.
+
+**⬇ Bug report** — generates a `.tar.gz` bundle at `/tmp/` containing the full
+JSON diagnostic, `SUMMARY.txt`, KWin boot journal, targeted startup log
+excerpts, `kwin-support-info.txt`, and NVIDIA driver info. Attach to KDE
+Bugzilla, the NVIDIA forum, or the Bazzite community thread.
+
+**Zoom controls** (header, `−` / `150%` / `+`) — scales the entire UI.
+Default is 150% for legibility on HiDPI displays. `Ctrl+=` / `Ctrl+-` /
+`Ctrl+0` also work from the keyboard.
 
 ---
 
