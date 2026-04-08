@@ -118,6 +118,8 @@ There are eight independent layers between your GPU and a working screencast, an
 
 Each failing check includes the exact `fix:` command to paste — no searching, no guessing.
 
+Fix buttons marked **Fix it ⚠** will restart your Wayland compositor and end your session — you will need to log back in. These show a confirmation step before executing.
+
 ### The eight diagnostic layers
 
 | Layer | What it checks |
