@@ -83,34 +83,34 @@
 			<div class="space-y-2">
 				{#each results as result (result.check)}
 					<div class="rounded-md bg-background/40 p-3">
-						<div class="flex items-start justify-between gap-3">
-							<div class="min-w-0 flex-1">
-								<div class="flex items-center gap-2">
-									<span class={cn('text-xs font-bold', STATUS_COLOURS[result.status])}>
-										{result.status}
-									</span>
-									<span class="font-mono text-sm">{result.check}</span>
-									<span class="text-xs text-muted-foreground">
-										({result.confidence})
-									</span>
-								</div>
-								<p class="mt-1 text-sm text-muted-foreground whitespace-pre-wrap">{result.detail}</p>
-								{#if result.fix}
-									<code class="mt-1 block text-xs text-muted-foreground/70">
-										$ {result.fix}
-									</code>
-								{/if}
-							</div>
-
-							{#if result.fix && result.status !== 'PASS' && result.status !== 'SKIP'}
+						<!-- Status + check name — full width row -->
+						<div class="flex items-center gap-2">
+							<span class={cn('text-xs font-bold', STATUS_COLOURS[result.status])}>
+								{result.status}
+							</span>
+							<span class="font-mono text-sm">{result.check}</span>
+							<span class="text-xs text-muted-foreground">
+								({result.confidence})
+							</span>
+						</div>
+						<!-- Detail — full width so it never competes with FixButton -->
+						<p class="mt-1 text-sm text-muted-foreground whitespace-pre-wrap">{result.detail}</p>
+						{#if result.fix}
+							<code class="mt-1 block text-xs text-muted-foreground/70">
+								$ {result.fix}
+							</code>
+						{/if}
+						<!-- FixButton on its own row — expands downward without overlapping detail -->
+						{#if result.fix && result.status !== 'PASS' && result.status !== 'SKIP'}
+							<div class="mt-2 flex justify-end">
 								<FixButton
 									checkName={result.check}
 									fixCommand={result.fix}
 									{fixing}
 									{onFix}
 								/>
-							{/if}
-						</div>
+							</div>
+						{/if}
 					</div>
 				{/each}
 			</div>
