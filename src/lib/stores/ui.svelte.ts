@@ -32,12 +32,13 @@ if (!hasStored && typeof localStorage !== 'undefined') {
 	localStorage.setItem(ZOOM_KEY, String(DEFAULT_ZOOM));
 }
 
-// Clamp to nearest valid step on load (handles stale/corrupt values)
-let _zoom = $state<number>(
-	ZOOM_STEPS.reduce((prev, cur) =>
-		Math.abs(cur - stored) < Math.abs(prev - stored) ? cur : prev
-	)
+// Clamp to nearest valid step on load (handles stale/corrupt values).
+// Use a plain const for the initial value so the module-level applyZoom()
+// call does not reference $state outside a closure (Svelte 5 warning).
+const initialZoom = ZOOM_STEPS.reduce((prev, cur) =>
+	Math.abs(cur - stored) < Math.abs(prev - stored) ? cur : prev
 );
+let _zoom = $state<number>(initialZoom);
 
 // ── Apply ──────────────────────────────────────────────────────────────────
 
@@ -47,8 +48,9 @@ function applyZoom(z: number) {
 	}
 }
 
-// Apply immediately on module load
-applyZoom(_zoom);
+// Apply immediately on module load — initialZoom not _zoom avoids
+// referencing $state outside a reactive context.
+applyZoom(initialZoom);
 
 // ── Actions ────────────────────────────────────────────────────────────────
 
