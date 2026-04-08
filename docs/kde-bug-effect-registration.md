@@ -1,3 +1,6 @@
+# KDE Bug 518698 — FILED 2026-04-08
+# https://bugs.kde.org/show_bug.cgi?id=518698
+#
 # KDE Bug — Final Draft (Goal 2, Session 6)
 # Product:   KWin
 # Component: effects
