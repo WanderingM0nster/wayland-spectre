@@ -91,10 +91,10 @@ The Critical bugs above are gone from this list (addressed). Remaining work:
 
 ## wayland-spectre tool — current state
 
-**Version:** 0.3.0 Frostcrystal Gelatinous Cube (released Session 6)
+**Version:** 0.4.0 Infernoheart (released Session 7)
 **Forgejo:** https://forgejo.wanderingmonster.dev/WanderingMonster/wayland-spectre
 **GitHub mirror:** https://github.com/WanderingM0nster/wayland-spectre
-**AppImageHub PR:** https://github.com/AppImage/appimage.github.io/pull/3733 (open, Session 6)
+**AppImageHub PR:** https://github.com/AppImage/appimage.github.io/pull/3733 (open, awaiting maintainer review)
 **Bazzite thread:** https://universal-blue.discourse.group/t/11901
 
 **Diagnostic results (tiled display only, no secondary monitor):**
@@ -105,12 +105,18 @@ The Critical bugs above are gone from this list (addressed). Remaining work:
   - L3: bug_d_screencast_globals (synthesised)
   - L7: kwin_screencast_effect_active — plugin loaded, effect absent
 
-**Session 6 additions:**
-- KwinJournal auto-expands (amber badge) when kwin_screencast_effect_active FAIL
-- `--check <LAYER>` CLI shorthand; colour-coded layer headers
-- FixButton two-step confirmation for destructive commands (restart compositor)
-- AppImage built and distributed; GitHub mirror live; AppImageHub PR open
-- README TL;DR for non-technical users
+**Session 7 additions:**
+- Bug report redaction: hostname/username/home path scrubbing (CLI `--redact`, GUI checkbox on by default)
+- KWin Journal: current boot only (`-b` flag added to journalctl)
+- "Copy cmd" button alongside every "Fix it" button
+- xdg-desktop-portal version check (already present, detects ELOOP-affected v5/1.20.x)
+- Bazzite community thread update draft prepared
+- drm_info + journal data posted to KWin MR !1174 (tiled display support)
+
+**Known issue (Session 7):**
+- KWin Journal boot filter UI needs investigation — verify `-b` flag behaviour
+  when compositor has restarted mid-session (multiple kwin_wayland PIDs in
+  same boot)
 
 ---
 
@@ -140,25 +146,29 @@ The Critical bugs above are gone from this list (addressed). Remaining work:
 
 ---
 
-## Session 7 proposed goals
+## Session 7 — completed 2026-04-08
 
-### Immediate (check first)
-1. **AppImageHub PR #3733** — check CI result; fix if failed; confirm merge status
-2. **KDE bug 518698** — check for Zamundaaa response; reply if needed
-3. **Tier 1 #1 — MR !1174** — ~~test multi-monitor TILE/MST MR on UP3214Q setup~~
-   Phase 1 done: drm_info + journal [posted](https://invent.kde.org/plasma/kwin/-/merge_requests/1174#note_1466367) 2026-04-08. Phase 2 (build + test) awaiting Zamundaaa response.
+### Accomplished
+1. **AppImageHub PR #3733** — checked: open, no CI checks, awaiting maintainer review
+2. **KDE bug 518698** — checked: REPORTED, no upstream response yet
+3. **Tier 1 #1 — MR !1174** — Phase 1 done: drm_info + journal
+   [posted](https://invent.kde.org/plasma/kwin/-/merge_requests/1174#note_1466367)
+   2026-04-08. Phase 2 (build + test) awaiting Zamundaaa response.
+   MR reference corrected (!4154 was wrong, !1174 is correct).
+4. **v0.4.0 Infernoheart released** — all 5 candidate features implemented,
+   built, tagged, released to both Forgejo and GitHub with AppImage
+5. **Bazzite community thread update** — draft prepared in
+   docs/contributions/bazzite-thread-update-session7.md, ready to paste at
+   https://universal-blue.discourse.group/t/11901
 
-### wayland-spectre v0.4.0 Infernoheart
-Candidate features (decide at session start):
-- Hostname redaction option in `generate_bug_report` — sanitize before public filing
-- Add check for xdg-desktop-portal version (Bug B ELOOP affects specific versions)
-- KwinJournal: filter to current boot only (multiple boots currently visible)
-- "Copy fix command" button — let user paste + run manually instead of auto-exec
-- Bazzite community thread update post for Session 6 findings
+### Known issues for Session 8
+- KWin Journal boot filter UI needs investigation (see known issue above)
+- AppImageHub PR #3733 still awaiting maintainer review
+- KDE bug 518698 still awaiting upstream response
+- MR !1174 Phase 2 (build + test) blocked on Zamundaaa response
 
 ### Release naming sequence
-  v0.4.0 Infernoheart  ← next (fiery, intense, dramatic)
-  v0.5.0 Lumigrotto
+  v0.5.0 Lumigrotto    ← next
   v0.6.0 Mysticweaver
   ...
 
