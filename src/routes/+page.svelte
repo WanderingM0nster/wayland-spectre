@@ -20,6 +20,10 @@
 		) ?? false
 	);
 
+	// Non-Wayland sessions get an explanatory banner: Wayland-specific layers
+	// are skipped there, not failing.
+	const sessionType = $derived(diagnostic.report?.system.session_type ?? 'WAYLAND');
+
 	// Auto-run on mount
 	onMount(() => {
 		diagnostic.runDiagnostics();
@@ -160,6 +164,29 @@
 
 			<!-- Results -->
 			{:else if diagnostic.report}
+				<!-- Non-Wayland session banner -->
+				{#if sessionType !== 'WAYLAND'}
+					<div class="rounded-lg border border-border bg-muted/30 p-3">
+						{#if sessionType === 'X11'}
+							<p class="text-sm font-medium">X11 session detected</p>
+							<p class="mt-1 text-xs text-muted-foreground">
+								This tool diagnoses the Wayland screen-sharing pipeline on KDE Plasma.
+								Under X11 the Wayland-specific checks — compositor connection, Wayland
+								protocols, and the KWin screencast plugin — are reported as SKIP because
+								that pipeline is not in use, not because anything is broken. The portal,
+								PipeWire, Flatpak, and driver checks still apply and run normally.
+							</p>
+						{:else}
+							<p class="text-sm font-medium">Session type unknown</p>
+							<p class="mt-1 text-xs text-muted-foreground">
+								The session type could not be determined (XDG_SESSION_TYPE is unset and
+								neither WAYLAND_DISPLAY nor DISPLAY is present). All checks run; Wayland
+								connection failures may reflect this environment rather than a fault.
+							</p>
+						{/if}
+					</div>
+				{/if}
+
 				<SummaryBar
 					summary={diagnostic.summary}
 					system={diagnostic.report.system}

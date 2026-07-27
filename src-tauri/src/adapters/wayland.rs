@@ -10,7 +10,7 @@
 //!     with no zkde_screencast → annotate the tiled-display hypothesis.
 
 use wayland_client::{protocol::wl_registry, Connection, Dispatch, QueueHandle};
-use crate::domain::types::{Confidence, DiagnosticResult, Layer};
+use crate::domain::types::{Confidence, DiagnosticResult, Layer, SessionType};
 
 #[derive(Debug, Clone)]
 pub(crate) struct WlGlobal {
@@ -40,7 +40,14 @@ impl Dispatch<wl_registry::WlRegistry, ()> for RegistryCollector {
     }
 }
 
-pub async fn check_wayland_protocols() -> Vec<DiagnosticResult> {
+pub async fn check_wayland_protocols(session: SessionType) -> Vec<DiagnosticResult> {
+    // X11: the Wayland screencast path is not in use — report the whole layer
+    // as not-applicable instead of failing every check (v0.4.1).
+    // Unknown keeps the current behaviour: attempt the connection and let a
+    // failure speak for itself.
+    if session == SessionType::X11 {
+        return x11_skip_results();
+    }
     match connect_and_enumerate() {
         Err(e) => vec![DiagnosticResult::fail(
             Layer::L2,
@@ -51,6 +58,24 @@ pub async fn check_wayland_protocols() -> Vec<DiagnosticResult> {
         )],
         Ok(globals) => build_checks(globals),
     }
+}
+
+const X11_SKIP_DETAIL: &str = "X11 session — Wayland screencast path not in use";
+
+/// One named SKIP per unconditional check, so the L2/L3 layer groups render
+/// visibly-skipped in both frontends. The synthesised conditional checks
+/// (bug_d_screencast_globals, wl_output_tiled_correlation) are not emitted:
+/// they are hypotheses about a Wayland compositor and have no X11 meaning.
+pub(crate) fn x11_skip_results() -> Vec<DiagnosticResult> {
+    let mut out = vec![
+        DiagnosticResult::skip(Layer::L2, "wayland_connect", X11_SKIP_DETAIL),
+        DiagnosticResult::skip(Layer::L2, "wayland_backend", X11_SKIP_DETAIL),
+        DiagnosticResult::skip(Layer::L3, "wl_output_count", X11_SKIP_DETAIL),
+    ];
+    for (iface, _, _, _) in SCREENCAST_GLOBALS {
+        out.push(DiagnosticResult::skip(Layer::L3, *iface, X11_SKIP_DETAIL));
+    }
+    out
 }
 
 fn connect_and_enumerate(
@@ -68,34 +93,44 @@ fn connect_and_enumerate(
 
 // ── Protocol tables ────────────────────────────────────────────────────────
 
-/// (interface, label, required, fix_cmd)
-///
-/// `required=true`  → FAIL if absent, with the given `fix_cmd`.
-/// `required=false` → WARN if absent (optional/informational, no fix needed).
+/// How a global's absence is reported.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum GlobalClass {
+    /// FAIL if absent, with the table's fix_cmd.
+    Required,
+    /// WARN if absent (optional/informational, no fix needed).
+    Optional,
+    /// SKIP if absent — the compositor only advertises the global to
+    /// authorised clients, so an unprivileged diagnostic can never see it
+    /// and absence is not evidence of breakage (v0.4.1 false-positive audit,
+    /// upstream-confirmed by Sodivad/Zamundaaa).
+    PermissionGated,
+}
+
+/// (interface, label, class, fix_cmd)
 ///
 /// Fix commands must satisfy the safety rules in AGENTS.md:
 ///   single token, no |;&><$`, no sudo, restarts only.
-const SCREENCAST_GLOBALS: &[(&str, &str, bool, &str)] = &[
+const SCREENCAST_GLOBALS: &[(&str, &str, GlobalClass, &str)] = &[
     // zwp_linux_dmabuf_v1 has been in Mesa and KWin since ~2018;
     // if absent something has gone very wrong with the compositor startup.
     ("zwp_linux_dmabuf_v1",
      "Linux DMA-BUF",
-     true,
+     GlobalClass::Required,
      "journalctl --user -u plasma-kwin_wayland -n 100"),
 
-    // zkde_screencast_unstable_v1 is advertised by the KWin screencast plugin.
-    // If absent the plugin failed to initialise — restart is the first step.
-    // (Bug D: on tiled displays the CRTC format mismatch prevents init.)
+    // zkde_screencast_unstable_v1 is only advertised to authorised portal
+    // processes — this client can never see it, healthy or not.
     ("zkde_screencast_unstable_v1",
      "KDE ScreenCast (kde-screencast)",
-     true,
-     "systemctl --user restart plasma-kwin_wayland"),
+     GlobalClass::PermissionGated,
+     ""),
 
     // ext_image_capture_source_v1 is the standardised replacement added in
     // KWin 6.1 / xdg-desktop-portal-kde 1.18. Same root cause as above.
     ("ext_image_capture_source_v1",
      "ext-image-capture-source",
-     true,
+     GlobalClass::Required,
      "systemctl --user restart plasma-kwin_wayland"),
 
     // wp_linux_drm_syncobj_manager_v1 (explicit sync fences) — required by
@@ -103,13 +138,13 @@ const SCREENCAST_GLOBALS: &[(&str, &str, bool, &str)] = &[
     // Added to KWin in Plasma 6.1 / kernel 6.6+.
     ("wp_linux_drm_syncobj_manager_v1",
      "Linux DRM syncobj (explicit sync)",
-     true,
+     GlobalClass::Required,
      "journalctl --user -u plasma-kwin_wayland -n 100"),
 
     // Optional / informational
-    ("wp_viewporter",              "wp-viewporter",               false, ""),
-    ("wp_presentation",            "wp-presentation",             false, ""),
-    ("zwlr_screencopy_manager_v1", "wlroots screencopy (fallback)", false, ""),
+    ("wp_viewporter",              "wp-viewporter",               GlobalClass::Optional, ""),
+    ("wp_presentation",            "wp-presentation",             GlobalClass::Optional, ""),
+    ("zwlr_screencopy_manager_v1", "wlroots screencopy (fallback)", GlobalClass::Optional, ""),
 ];
 
 // ── Main check builder ─────────────────────────────────────────────────────
@@ -191,50 +226,63 @@ pub(crate) fn build_checks(globals: Vec<WlGlobal>) -> Vec<DiagnosticResult> {
     }
 
     // L3: protocol-by-protocol checks
-    for (iface, label, required, fix_cmd) in SCREENCAST_GLOBALS {
+    for (iface, label, class, fix_cmd) in SCREENCAST_GLOBALS {
         match globals.iter().find(|g| g.interface == *iface) {
             Some(g) => out.push(DiagnosticResult::pass(
                 Layer::L3,
                 *iface,
                 format!("{label} advertised at version {}", g.version),
             )),
-            None if *required => out.push(DiagnosticResult::fail(
-                Layer::L3,
-                *iface,
-                format!("{iface} not advertised by compositor"),
-                *fix_cmd,
-                Confidence::High,
-            )),
-            None => out.push(DiagnosticResult::warn(
-                Layer::L3,
-                *iface,
-                format!("{iface} not advertised (optional)"),
-                None,
-                Confidence::Low,
-            )),
+            None => match class {
+                GlobalClass::Required => out.push(DiagnosticResult::fail(
+                    Layer::L3,
+                    *iface,
+                    format!("{iface} not advertised by compositor"),
+                    *fix_cmd,
+                    Confidence::High,
+                )),
+                GlobalClass::PermissionGated => out.push(DiagnosticResult::skip(
+                    Layer::L3,
+                    *iface,
+                    format!(
+                        "{iface} not visible to this client — KWin only advertises it \
+                         to authorised portal processes, so absence here is not evidence \
+                         of breakage. See kwin_screencast_effect_active (L7) for the \
+                         reliable signal."
+                    ),
+                )),
+                GlobalClass::Optional => out.push(DiagnosticResult::warn(
+                    Layer::L3,
+                    *iface,
+                    format!("{iface} not advertised (optional)"),
+                    None,
+                    Confidence::Low,
+                )),
+            },
         }
     }
 
-    // ── Bug D: KWin screencast globals completely absent ───────────────────
+    // ── Bug D: KWin screencast globals not observable ──────────────────────
     //
-    // When BOTH zkde_screencast_unstable_v1 AND ext_image_capture_source_v1
-    // are missing, screen sharing is broken at the compositor level regardless
-    // of portal or PipeWire state.  This is "Bug D" — distinguished from
-    // individual missing-global FAILs above by synthesising the root-cause
-    // hypothesis and pointing at the specific upstream threads.
+    // Fires when NEITHER zkde_screencast_unstable_v1 NOR
+    // ext_image_capture_source_v1 is visible. A visible zkde still correctly
+    // suppresses it (older KWin advertised it globally — proof of health).
     //
-    // On this system (RTX 5090, NVIDIA open 595.x, tiled Dell UP3214Q) the
-    // cause is the CRTC tiling format mismatch (AB30 vs AB4H) preventing
-    // the KWin screencast plugin from initialising at compositor startup.
-    // KDE bugs 493277 + 503870, NVIDIA forum 331077.
+    // v0.4.1: downgraded FAIL → WARN. zkde is permission-gated on current
+    // KWin, so this client not seeing the globals is expected even on healthy
+    // systems — the synthesis is an inconclusive correlation, not proof of
+    // compositor-level breakage. On the original target system (RTX 5090,
+    // NVIDIA open modules, tiled Dell UP3214Q) it did correlate with the real
+    // Bug D: CRTC tiling format mismatch (AB30 vs AB4H) preventing screencast
+    // plugin init. KDE bugs 493277 + 503870, NVIDIA forum 331077.
     let has_ext = globals.iter().any(|g| g.interface == "ext_image_capture_source_v1");
     if !has_zkde && !has_ext {
         let tiled_context = if n_outputs >= 2 {
             format!(
                 " {n_outputs} wl_outputs detected — consistent with a tiled 4K display \
-                 (e.g. Dell UP3214Q split across DP-4 + DP-5). The CRTC format mismatch \
-                 (AB30 vs AB4H) on NVIDIA open modules is the probable init blocker. \
-                 See KDE bugs 493277 + 503870 and NVIDIA forum 331077."
+                 (e.g. Dell UP3214Q split across DP-4 + DP-5), where the CRTC format \
+                 mismatch (AB30 vs AB4H) on NVIDIA open modules has been confirmed to \
+                 block plugin init. See KDE bugs 493277 + 503870 and NVIDIA forum 331077."
             )
         } else {
             " Check L7 kwin_screencast_loaded — the plugin may have crashed or been \
@@ -242,24 +290,25 @@ pub(crate) fn build_checks(globals: Vec<WlGlobal>) -> Vec<DiagnosticResult> {
             .to_string()
         };
 
-        out.push(DiagnosticResult::fail(
+        out.push(DiagnosticResult::warn(
             Layer::L3,
             "bug_d_screencast_globals",
             format!(
-                "Bug D — KWin is not advertising its screencast protocol globals. \
-                 Screen sharing is broken at the compositor level: no amount of portal \
-                 or PipeWire configuration will help until KWin exposes these globals.\
+                "Bug D signature — none of KWin's screencast protocol globals are \
+                 visible to this client. Inconclusive on its own: current KWin only \
+                 advertises them to authorised portal processes, so a healthy system \
+                 can look identical from here. Treat as a fault only if \
+                 kwin_screencast_effect_active (L7) also fails or the live portal \
+                 CreateSession probe (L4) does not pass.\
                  {tiled_context}\n\
                  Investigation steps:\n\
-                 (1) Check L7 kwin_screencast_loaded — does supportInformation list the plugin?\n\
+                 (1) Check L7 kwin_screencast_effect_active — the reliable signal.\n\
                  (2) journalctl --user -u plasma-kwin_wayland -n 100 | grep -i screen\n\
-                 (3) These globals require KWin ≥5.20; with NVIDIA open modules ≥555 \
-                 wp_linux_drm_syncobj_manager_v1 must also be present.\n\
                  Upstream: https://bugs.kde.org/show_bug.cgi?id=493277  \
                  https://forums.developer.nvidia.com/t/331077"
             ),
-            "systemctl --user restart plasma-kwin_wayland",
-            Confidence::High,
+            Some("systemctl --user restart plasma-kwin_wayland".into()),
+            Confidence::Medium,
         ));
     }
 
@@ -311,8 +360,54 @@ mod tests {
             "wl_compositor", "xdg_wm_base", "org_kde_plasma_window_management", "wl_output",
         ]));
         assert_eq!(
-            status(&r, "zkde_screencast_unstable_v1"),
+            status(&r, "ext_image_capture_source_v1"),
             CheckStatus::Fail
+        );
+        assert_eq!(
+            status(&r, "zwp_linux_dmabuf_v1"),
+            CheckStatus::Fail
+        );
+    }
+
+    // ── v0.4.1: zkde is permission-gated — absence is inconclusive ────────
+
+    #[test]
+    fn zkde_absent_skips_not_fails() {
+        let r = build_checks(g(&[
+            "wl_compositor", "xdg_wm_base", "org_kde_plasma_window_management", "wl_output",
+        ]));
+        assert_eq!(
+            status(&r, "zkde_screencast_unstable_v1"),
+            CheckStatus::Skip
+        );
+    }
+
+    #[test]
+    fn zkde_skip_has_no_fix_and_explains_gating() {
+        let r = build_checks(g(&[
+            "wl_compositor", "xdg_wm_base", "org_kde_plasma_window_management", "wl_output",
+        ]));
+        let res = r.iter().find(|x| x.check == "zkde_screencast_unstable_v1").unwrap();
+        assert!(res.fix.is_none(), "permission-gated skip must not offer a fix");
+        assert!(
+            res.detail.contains("authorised") || res.detail.contains("not evidence"),
+            "detail should frame absence as inconclusive"
+        );
+        assert!(
+            res.detail.contains("kwin_screencast_effect_active"),
+            "detail should point at the reliable L7 signal"
+        );
+    }
+
+    #[test]
+    fn zkde_present_still_passes() {
+        let r = build_checks(g(&[
+            "wl_compositor", "xdg_wm_base", "org_kde_plasma_window_management",
+            "zkde_screencast_unstable_v1", "wl_output",
+        ]));
+        assert_eq!(
+            status(&r, "zkde_screencast_unstable_v1"),
+            CheckStatus::Pass
         );
     }
 
@@ -417,13 +512,19 @@ mod tests {
 
     #[test]
     fn bug_d_fires_when_both_screencast_globals_absent() {
-        // Neither zkde nor ext present → Bug D check must fire as FAIL
+        // Neither zkde nor ext present → Bug D fires as WARN (v0.4.1: the
+        // globals are permission-gated, so absence alone is inconclusive)
         let r = build_checks(g(&[
             "wl_compositor", "xdg_wm_base", "org_kde_plasma_window_management",
             "zwp_linux_dmabuf_v1",
             "wl_output", "wl_output",
         ]));
-        assert_eq!(status(&r, "bug_d_screencast_globals"), CheckStatus::Fail);
+        assert_eq!(status(&r, "bug_d_screencast_globals"), CheckStatus::Warn);
+        let d = &r.iter().find(|x| x.check == "bug_d_screencast_globals").unwrap().detail;
+        assert!(d.contains("Inconclusive") || d.contains("inconclusive"),
+            "detail should frame the signature as inconclusive");
+        assert!(d.contains("kwin_screencast_effect_active"),
+            "detail should defer to the reliable L7 signal");
     }
 
     #[test]
@@ -517,7 +618,7 @@ mod tests {
             "wl_compositor", "xdg_wm_base", "org_kde_plasma_window_management",
             "wl_output",
         ]));
-        for check in &["zkde_screencast_unstable_v1", "ext_image_capture_source_v1"] {
+        for check in &["ext_image_capture_source_v1", "wp_linux_drm_syncobj_manager_v1"] {
             let fix = r.iter()
                 .find(|x| &x.check == check)
                 .and_then(|x| x.fix.as_deref())
@@ -525,5 +626,39 @@ mod tests {
             assert!(!fix.starts_with("echo"), "fix for {check} should not be a bare echo");
             assert!(!fix.is_empty(), "fix for {check} should be non-empty");
         }
+    }
+
+    // ── v0.4.1: X11 session — everything skips ────────────────────────────
+
+    #[test]
+    fn x11_all_results_are_skips_with_no_fix() {
+        let r = x11_skip_results();
+        assert!(!r.is_empty());
+        for res in &r {
+            assert_eq!(res.status, CheckStatus::Skip, "{} should SKIP on X11", res.check);
+            assert!(res.fix.is_none(), "{} must not offer a fix on X11", res.check);
+            assert!(res.detail.contains("X11 session"), "{} detail should say why", res.check);
+        }
+    }
+
+    #[test]
+    fn x11_skips_cover_connect_backend_outputs_and_all_globals() {
+        let r = x11_skip_results();
+        for check in ["wayland_connect", "wayland_backend", "wl_output_count"] {
+            assert!(r.iter().any(|x| x.check == check), "missing X11 skip for {check}");
+        }
+        for (iface, _, _, _) in SCREENCAST_GLOBALS {
+            assert!(r.iter().any(|x| x.check == *iface), "missing X11 skip for {iface}");
+        }
+        // Synthesised conditional checks must NOT be emitted on X11
+        assert!(r.iter().all(|x| x.check != "bug_d_screencast_globals"));
+        assert!(r.iter().all(|x| x.check != "wl_output_tiled_correlation"));
+    }
+
+    #[test]
+    fn x11_connect_skip_is_layer_l2() {
+        let r = x11_skip_results();
+        let connect = r.iter().find(|x| x.check == "wayland_connect").unwrap();
+        assert_eq!(connect.layer, Layer::L2);
     }
 }

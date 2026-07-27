@@ -80,6 +80,15 @@ There are eight independent layers between your GPU and a working screencast, an
 
 **wayland-spectre runs all the checks at once and tells you exactly which layer is broken and why.**
 
+### Runs on X11 too
+
+The tool detects the session type at startup and also runs on **X11**. The
+Wayland-specific checks (compositor connection, Wayland protocols, KWin
+screencast plugin) are reported as **SKIP — not applicable** there rather than
+as failures, with a banner explaining why; the portal, PipeWire, Flatpak, and
+driver checks run normally. The CLI exits 0 on X11 when skips are the only
+non-passing results.
+
 ---
 
 ## What it checks

@@ -26,6 +26,27 @@ impl std::fmt::Display for CheckStatus {
     }
 }
 
+/// Session type detected once per diagnostic run (see domain/session.rs for
+/// the detection logic) and threaded into the adapters that behave
+/// differently on X11. Serialises into SystemInfo for the frontend banner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum SessionType {
+    Wayland,
+    X11,
+    Unknown,
+}
+
+impl std::fmt::Display for SessionType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Wayland => write!(f, "WAYLAND"),
+            Self::X11     => write!(f, "X11"),
+            Self::Unknown => write!(f, "UNKNOWN"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum Confidence {
@@ -51,7 +72,7 @@ impl std::fmt::Display for Confidence {
 pub enum Layer {
     L0, // GPU / NVIDIA driver
     L1, // D-Bus / portal session
-    L2, // Portal backend / ScreenCast interface
+    L2, // Compositor connection / identity
     L3, // Wayland compositor protocols
     L4, // PipeWire graph
     L5, // Flatpak permissions
@@ -158,6 +179,7 @@ pub struct SystemInfo {
     pub kernel: String,
     pub nvidia_driver: Option<String>,
     pub bazzite_image: Option<String>,
+    pub session_type: SessionType,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

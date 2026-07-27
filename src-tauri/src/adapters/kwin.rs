@@ -17,20 +17,22 @@
 //! kwinrc check and tiled-display check: unchanged from Session 3.
 //! Layer: L7
 
-use crate::domain::types::{Confidence, DiagnosticResult, Layer};
+use crate::domain::types::{Confidence, DiagnosticResult, Layer, SessionType};
 use std::fs;
 use std::path::PathBuf;
 use zbus::{Connection, Proxy};
 
 // ── Public entry point ─────────────────────────────────────────────────────
 
-pub async fn check_kwin_plugins() -> Vec<DiagnosticResult> {
+pub async fn check_kwin_plugins(session: SessionType) -> Vec<DiagnosticResult> {
     let mut results = Vec::new();
 
-    // kwinrc check: pure file read — no D-Bus needed
+    // kwinrc check: pure file read — no D-Bus needed. Runs on X11 too: a
+    // disabled plugin key matters the moment the user logs back into Wayland.
     results.extend(check_screencast_plugin_kwinrc());
 
-    // Native D-Bus introspection
+    // Native D-Bus introspection — org.kde.KWin is on the bus for both
+    // kwin_wayland and kwin_x11.
     let conn = match Connection::session().await {
         Ok(c) => c,
         Err(e) => {
@@ -57,9 +59,13 @@ pub async fn check_kwin_plugins() -> Vec<DiagnosticResult> {
             results.push(DiagnosticResult::pass(
                 Layer::L7,
                 "kwin_running",
-                "KWin responding on D-Bus (native zbus)",
+                if session == SessionType::X11 {
+                    "KWin responding on D-Bus (kwin_x11 — X11 session)"
+                } else {
+                    "KWin responding on D-Bus (native zbus)"
+                },
             ));
-            results.extend(analyse_support_info(&info));
+            results.extend(analyse_support_info(&info, session));
         }
     }
 
@@ -79,12 +85,17 @@ async fn fetch_kwin_support_info(conn: &Connection) -> zbus::Result<String> {
 // ── Pure analysis — all testable without D-Bus ────────────────────────────
 
 /// Runs all supportInformation sub-checks. Exposed for unit tests.
-pub(crate) fn analyse_support_info(info: &str) -> Vec<DiagnosticResult> {
+///
+/// v0.4.1: takes the session type. On X11 the compositor is kwin_x11 —
+/// the Wayland-screencast-specific checks (render backend EGL requirement,
+/// screencast plugin/effect) report SKIP; version and tiled-display
+/// detection still apply.
+pub(crate) fn analyse_support_info(info: &str, session: SessionType) -> Vec<DiagnosticResult> {
     let mut out = Vec::new();
     out.extend(check_version(info));
-    out.extend(check_render_backend(info));
-    out.extend(check_screencast_plugin_info(info));
-    out.extend(check_screencast_effect_active(info));
+    out.extend(check_render_backend(info, session));
+    out.extend(check_screencast_plugin_info(info, session));
+    out.extend(check_screencast_effect_active(info, session));
     out.extend(check_tiled_display(info));
     out
 }
@@ -203,7 +214,17 @@ pub(crate) fn parse_render_backend(info: &str) -> (bool, bool, bool) {
     (has_egl, has_gbm, has_glx)
 }
 
-fn check_render_backend(info: &str) -> Vec<DiagnosticResult> {
+fn check_render_backend(info: &str, session: SessionType) -> Vec<DiagnosticResult> {
+    // GLX is the normal backend under kwin_x11 — the EGL/GBM requirement
+    // only applies to the kwin_wayland screencast path (v0.4.1).
+    if session == SessionType::X11 {
+        return vec![DiagnosticResult::skip(
+            Layer::L7,
+            "kwin_render_backend",
+            "X11 session — EGL/GBM requirement applies to the kwin_wayland screencast path",
+        )];
+    }
+
     let (has_egl, has_gbm, has_glx) = parse_render_backend(info);
 
     if has_glx {
@@ -253,7 +274,15 @@ pub(crate) fn screencast_in_support_info(info: &str) -> bool {
     }
 }
 
-fn check_screencast_plugin_info(info: &str) -> Vec<DiagnosticResult> {
+fn check_screencast_plugin_info(info: &str, session: SessionType) -> Vec<DiagnosticResult> {
+    if session == SessionType::X11 {
+        return vec![DiagnosticResult::skip(
+            Layer::L7,
+            "kwin_screencast_loaded",
+            "X11 session — kwin_screencast is a kwin_wayland plugin; not expected under kwin_x11",
+        )];
+    }
+
     if screencast_in_support_info(info) {
         vec![DiagnosticResult::pass(
             Layer::L7,
@@ -261,15 +290,21 @@ fn check_screencast_plugin_info(info: &str) -> Vec<DiagnosticResult> {
             "KWin screencast plugin present in 'Loaded Plugins' — plugin initialised by KWin",
         )]
     } else {
-        vec![DiagnosticResult::fail(
+        // v0.4.1 false-positive audit: upstream confirmed this listing is not
+        // reliable for the screencast plugin — it can be absent on systems
+        // where screen sharing works. Inconclusive, not a fault; the check
+        // that actually distinguishes plugin-loaded from effect-activated is
+        // kwin_screencast_effect_active (L7), which keeps its FAIL weight.
+        vec![DiagnosticResult::warn(
             Layer::L7,
             "kwin_screencast_loaded",
-            "KWin screencast plugin absent from 'Loaded Plugins' — plugin failed to initialise \
-             or was not loaded at startup. This directly explains the L3 FAIL: \
-             zkde_screencast_unstable_v1 not advertised. Common causes: NVIDIA driver / \
-             tiled display init failure (KDE bugs 493277, 503870), or plugin crash at startup.",
-            "systemctl --user restart plasma-kwin_wayland",
-            Confidence::High,
+            "KWin screencast plugin not listed in 'Loaded Plugins' — inconclusive: this \
+             listing is unreliable for the screencast plugin and can be absent on systems \
+             where screen sharing works (upstream-confirmed). See \
+             kwin_screencast_effect_active (L7) for the signal that distinguishes \
+             plugin-loaded from effect-activated.",
+            None,
+            Confidence::Low,
         )]
     }
 }
@@ -302,7 +337,15 @@ pub(crate) fn screencast_effect_active(info: &str) -> bool {
 /// not supported when KWin is managed by plasma-kwin_wayland.service.
 /// The least-disruptive option remains:
 ///   systemctl --user restart plasma-kwin_wayland
-fn check_screencast_effect_active(info: &str) -> Vec<DiagnosticResult> {
+fn check_screencast_effect_active(info: &str, session: SessionType) -> Vec<DiagnosticResult> {
+    if session == SessionType::X11 {
+        return vec![DiagnosticResult::skip(
+            Layer::L7,
+            "kwin_screencast_effect_active",
+            "X11 session — the screencast effect only exists under kwin_wayland",
+        )];
+    }
+
     // Skip if "Loaded Effects:" section is absent — we can't distinguish
     if !info.to_lowercase().contains("loaded effects:") {
         return vec![DiagnosticResult::skip(
@@ -448,7 +491,11 @@ mod tests {
     use crate::domain::types::CheckStatus;
 
     fn run(info: &str) -> Vec<DiagnosticResult> {
-        analyse_support_info(info)
+        analyse_support_info(info, SessionType::Wayland)
+    }
+
+    fn run_x11(info: &str) -> Vec<DiagnosticResult> {
+        analyse_support_info(info, SessionType::X11)
     }
 
     fn status(results: &[DiagnosticResult], check: &str) -> CheckStatus {
@@ -567,10 +614,14 @@ mod tests {
     }
 
     #[test]
-    fn screencast_absent_fails() {
+    fn screencast_absent_warns_inconclusive() {
+        // v0.4.1 audit: absence from 'Loaded Plugins' is unreliable — WARN, not FAIL
         let info = "Loaded Effects: blur, overview, slideback\n";
         assert!(!screencast_in_support_info(info));
-        assert_eq!(status(&run(info), "kwin_screencast_loaded"), CheckStatus::Fail);
+        let r = run(info);
+        assert_eq!(status(&r, "kwin_screencast_loaded"), CheckStatus::Warn);
+        let res = r.iter().find(|x| x.check == "kwin_screencast_loaded").unwrap();
+        assert!(res.fix.is_none(), "inconclusive warn must not offer a fix");
     }
 
     #[test]
@@ -581,10 +632,12 @@ mod tests {
     }
 
     #[test]
-    fn screencast_fail_mentions_l3() {
+    fn screencast_warn_points_at_effect_active_signal() {
         let r = run("Loaded Effects: blur\n");
         let d = &r.iter().find(|x| x.check == "kwin_screencast_loaded").unwrap().detail;
-        assert!(d.contains("L3") || d.contains("zkde_screencast"));
+        assert!(d.contains("inconclusive"), "should frame absence as inconclusive");
+        assert!(d.contains("kwin_screencast_effect_active"),
+            "should point at the reliable L7 signal");
     }
 
     #[test]
@@ -598,7 +651,7 @@ mod tests {
         // screencast_in_support_info now uses section-aware path
         assert!(!screencast_in_support_info(info),
             "should not report plugin as loaded when absent from Loaded Plugins section");
-        assert_eq!(status(&run(info), "kwin_screencast_loaded"), CheckStatus::Fail);
+        assert_eq!(status(&run(info), "kwin_screencast_loaded"), CheckStatus::Warn);
     }
 
     // ── Screencast effect active (kwin_screencast_effect_active) — NEW ──
@@ -661,10 +714,46 @@ mod tests {
         assert_eq!(status(&run(info_stuck), "kwin_screencast_loaded"), CheckStatus::Pass);
         assert_eq!(status(&run(info_stuck), "kwin_screencast_effect_active"), CheckStatus::Fail);
 
-        // Plugin not loaded → effect cannot be active
+        // Plugin not listed → loaded check is inconclusive (WARN, v0.4.1 audit),
+        // but the effect check keeps its FAIL weight — it is the real signal.
         let info_none = "Loaded Plugins:\nkwin4_effect_blur\n\nLoaded Effects:\nblur\n";
-        assert_eq!(status(&run(info_none), "kwin_screencast_loaded"), CheckStatus::Fail);
+        assert_eq!(status(&run(info_none), "kwin_screencast_loaded"), CheckStatus::Warn);
         assert_eq!(status(&run(info_none), "kwin_screencast_effect_active"), CheckStatus::Fail);
+    }
+
+    // ── v0.4.1: X11 session behaviour ─────────────────────────────────────
+
+    #[test]
+    fn x11_render_backend_skips_even_with_glx() {
+        // GLX is normal under kwin_x11 — must not FAIL there
+        let info = "Hardware Backend: GLX\nOpenGL platform: GLX\n";
+        let r = run_x11(info);
+        assert_eq!(status(&r, "kwin_render_backend"), CheckStatus::Skip);
+        let res = r.iter().find(|x| x.check == "kwin_render_backend").unwrap();
+        assert!(res.fix.is_none());
+        assert!(res.detail.contains("X11 session"));
+    }
+
+    #[test]
+    fn x11_screencast_checks_skip() {
+        // No screencast plugin/effect anywhere — expected under kwin_x11
+        let info = "Loaded Plugins:\nkwin4_effect_blur\n\nLoaded Effects:\nblur\n";
+        let r = run_x11(info);
+        assert_eq!(status(&r, "kwin_screencast_loaded"), CheckStatus::Skip);
+        assert_eq!(status(&r, "kwin_screencast_effect_active"), CheckStatus::Skip);
+        for check in ["kwin_screencast_loaded", "kwin_screencast_effect_active"] {
+            let res = r.iter().find(|x| x.check == check).unwrap();
+            assert!(res.fix.is_none(), "{check} must not offer a fix on X11");
+        }
+    }
+
+    #[test]
+    fn x11_version_and_tiled_display_still_run() {
+        let info = "KWin version: 6.6.3\nOutput DP-4: 1920x2160\nOutput DP-5: 1920x2160\n";
+        let r = run_x11(info);
+        assert_eq!(status(&r, "kwin_version"), CheckStatus::Pass);
+        // Tiled-panel topology is real hardware info regardless of session type
+        assert_eq!(status(&r, "kwin_tiled_display"), CheckStatus::Warn);
     }
 
     // ── Tiled display ─────────────────────────────────────────────────────

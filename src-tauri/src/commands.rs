@@ -3,7 +3,7 @@
 //! then serialises the result for the Svelte frontend.
 
 use crate::adapters;
-use crate::domain::types::{CaptureTestResult, DiagnosticReport, DiagnosticSummary, SystemInfo, CheckStatus};
+use crate::domain::types::{CaptureTestResult, DiagnosticReport, DiagnosticSummary, SessionType, SystemInfo, CheckStatus};
 use chrono::Utc;
 use std::process::Command;
 
@@ -12,18 +12,21 @@ use std::process::Command;
 /// and after every fix.
 #[tauri::command]
 pub async fn run_diagnostics() -> Result<DiagnosticReport, String> {
-    let system = gather_system_info();
+    // Detected once per run and threaded into the adapters whose behaviour
+    // depends on it (wayland, env, kwin). The rest are session-agnostic.
+    let session = SessionType::detect();
+    let system = gather_system_info(session);
 
     // Run all adapters concurrently via tokio::join!
     let (wayland_results, dbus_results, pipewire_results, flatpak_results, nvidia_results, env_results, kwin_results) =
         tokio::join!(
-            adapters::wayland::check_wayland_protocols(),
+            adapters::wayland::check_wayland_protocols(session),
             adapters::dbus::check_dbus_portal(),
             adapters::pipewire::check_pipewire(),
             adapters::flatpak::check_flatpak_permissions(),
             adapters::nvidia::check_nvidia(),
-            adapters::env::check_environment(),
-            adapters::kwin::check_kwin_plugins(),
+            adapters::env::check_environment(session),
+            adapters::kwin::check_kwin_plugins(session),
         );
 
     let mut results = Vec::new();
@@ -371,7 +374,7 @@ fn redact_text(text: &str, hostname: &str, username: &str) -> String {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-fn gather_system_info() -> SystemInfo {
+fn gather_system_info(session: SessionType) -> SystemInfo {
     let hostname = std::fs::read_to_string("/etc/hostname")
         .unwrap_or_default()
         .trim()
@@ -392,6 +395,7 @@ fn gather_system_info() -> SystemInfo {
         kernel,
         nvidia_driver,
         bazzite_image,
+        session_type: session,
     }
 }
 

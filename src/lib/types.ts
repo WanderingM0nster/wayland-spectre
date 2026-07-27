@@ -3,11 +3,12 @@
 
 export type CheckStatus = 'PASS' | 'WARN' | 'FAIL' | 'SKIP';
 export type Confidence = 'HIGH' | 'MEDIUM' | 'LOW';
+export type SessionType = 'WAYLAND' | 'X11' | 'UNKNOWN';
 
 export type LayerLabel =
 	| 'L0' // NVIDIA / GPU driver
 	| 'L1' // D-Bus / portal session
-	| 'L2' // Portal backend / ScreenCast interface
+	| 'L2' // Compositor connection / identity
 	| 'L3' // Wayland compositor protocols
 	| 'L4' // PipeWire graph
 	| 'L5' // Flatpak permissions
@@ -35,6 +36,7 @@ export interface SystemInfo {
 	kernel: string;
 	nvidia_driver: string | null;
 	bazzite_image: string | null;
+	session_type: SessionType;
 }
 
 export interface DiagnosticReport {
@@ -60,7 +62,7 @@ export const LAYER_META: Record<
 > = {
 	L0: { name: 'GPU / NVIDIA', description: 'Driver version, DMA-BUF modifiers, EGL Wayland', icon: 'memory' },
 	L1: { name: 'D-Bus / Portal Session', description: 'Zombie sessions, portal service health', icon: 'settings_ethernet' },
-	L2: { name: 'Portal Backend', description: 'ScreenCast interface, backend conflicts', icon: 'hub' },
+	L2: { name: 'Compositor Connection', description: 'Wayland socket, compositor identity', icon: 'hub' },
 	L3: { name: 'Wayland Protocols', description: 'zkde_screencast, ext_image, syncobj globals', icon: 'display_settings' },
 	L4: { name: 'PipeWire', description: 'Node state, screencast graph', icon: 'cable' },
 	L5: { name: 'Flatpak Permissions', description: 'Stale deny entries in permission store', icon: 'lock' },

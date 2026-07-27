@@ -20,7 +20,7 @@
 
 use crate::adapters;
 use crate::commands::generate_bug_report;
-use crate::domain::types::{CheckStatus, Layer};
+use crate::domain::types::{CheckStatus, Layer, SessionType};
 use clap::{Parser, Subcommand};
 use owo_colors::OwoColorize;
 use supports_color::Stream;
@@ -94,15 +94,18 @@ async fn run_checks(json_only: bool, layer_filter: Option<String>, use_color: bo
         print_header(use_color);
     }
 
+    // Detected once per run, threaded into the session-dependent adapters
+    let session = SessionType::detect();
+
     // Run all adapters — always concurrent; filter afterwards
     let (wayland, dbus, pipewire, flatpak, nvidia, env, kwin) = tokio::join!(
-        adapters::wayland::check_wayland_protocols(),
+        adapters::wayland::check_wayland_protocols(session),
         adapters::dbus::check_dbus_portal(),
         adapters::pipewire::check_pipewire(),
         adapters::flatpak::check_flatpak_permissions(),
         adapters::nvidia::check_nvidia(),
-        adapters::env::check_environment(),
-        adapters::kwin::check_kwin_plugins(),
+        adapters::env::check_environment(session),
+        adapters::kwin::check_kwin_plugins(session),
     );
 
     let mut all_results = Vec::new();
@@ -134,17 +137,33 @@ async fn run_checks(json_only: bool, layer_filter: Option<String>, use_color: bo
         let pass = filtered.iter().filter(|r| r.status == CheckStatus::Pass).count();
         let warn = filtered.iter().filter(|r| r.status == CheckStatus::Warn).count();
         let fail = filtered.iter().filter(|r| r.status == CheckStatus::Fail).count();
+        let skip = filtered.iter().filter(|r| r.status == CheckStatus::Skip).count();
         let output = serde_json::json!({
             "schema_version": "1",
             "layer_filter": layer_filter,
+            "session_type": session,
             "results": filtered,
-            "summary": { "pass": pass, "warn": warn, "fail": fail }
+            "summary": { "pass": pass, "warn": warn, "fail": fail, "skip": skip }
         });
         println!("{}", serde_json::to_string_pretty(&output).unwrap());
+        // Skips never affect the exit code — an all-skip X11 run exits 0
         return if fail > 0 { 1 } else { 0 };
     }
 
     // Human-readable output
+    if session != SessionType::Wayland {
+        let note = match session {
+            SessionType::X11 =>
+                "X11 session detected — Wayland-specific checks are reported as SKIP",
+            _ =>
+                "Session type unknown (XDG_SESSION_TYPE unset) — all checks run",
+        };
+        if use_color {
+            println!("  {}", note.dimmed());
+        } else {
+            println!("  {note}");
+        }
+    }
     if let Some(ref lf) = layer_filter {
         if use_color {
             println!("  {}", format!("layer filter: {lf}").dimmed());
@@ -226,7 +245,7 @@ fn layer_label(layer_str: &str) -> &'static str {
     match layer_str {
         "L0" => "hardware / gpu",
         "L1" => "d-bus / portal session",
-        "L2" => "portal backend",
+        "L2" => "compositor connection",
         "L3" => "wayland protocols",
         "L4" => "pipewire",
         "L5" => "flatpak permissions",
@@ -301,17 +320,19 @@ fn print_summary(results: &[crate::domain::types::DiagnosticResult], use_color: 
     let pass = results.iter().filter(|r| r.status == CheckStatus::Pass).count();
     let warn = results.iter().filter(|r| r.status == CheckStatus::Warn).count();
     let fail = results.iter().filter(|r| r.status == CheckStatus::Fail).count();
+    let skip = results.iter().filter(|r| r.status == CheckStatus::Skip).count();
 
     println!();
     if use_color {
         println!(
-            "  {} pass  {} warn  {} fail",
+            "  {} pass  {} warn  {} fail  {} skip",
             pass.to_string().green().bold(),
             warn.to_string().yellow().bold(),
             fail.to_string().red().bold(),
+            skip.to_string().dimmed(),
         );
     } else {
-        println!("  {pass} pass  {warn} warn  {fail} fail");
+        println!("  {pass} pass  {warn} warn  {fail} fail  {skip} skip");
     }
     println!();
 }

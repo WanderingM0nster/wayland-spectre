@@ -43,9 +43,14 @@ async fn check_screencast_version(conn: &Connection) -> DiagnosticResult {
     let proxy = match Proxy::new(conn, "org.freedesktop.portal.Desktop",
         "/org/freedesktop/portal/desktop", "org.freedesktop.portal.ScreenCast").await {
         Ok(p) => p,
-        Err(e) => return DiagnosticResult::fail(Layer::L1, "portal_screencast_iface",
-            format!("Cannot connect to ScreenCast interface: {e}"),
-            "systemctl --user restart xdg-desktop-portal", Confidence::Medium),
+        // v0.4.1 audit: an unprivileged client may be unable to query the
+        // interface even when screencasting works — inconclusive, not a fault.
+        // The live CreateSession probe (L4) is the reliable signal.
+        Err(e) => return DiagnosticResult::warn(Layer::L1, "portal_screencast_iface",
+            format!("Cannot query ScreenCast interface version: {e} — inconclusive; \
+                     the portal may still work. The live CreateSession probe (L4) is \
+                     the reliable signal."),
+            None, Confidence::Low),
     };
     match proxy.get_property::<u32>("version").await {
         Err(e) => DiagnosticResult::warn(Layer::L1, "portal_screencast_iface",
